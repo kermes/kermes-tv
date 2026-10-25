@@ -51,6 +51,7 @@
     <string name="reorder_hint">OK coge una app, las flechas la mueven, Atrás la suelta. Atrás de nuevo para terminar.</string>
     <string name="reorder_not_saved">No se pudo guardar el nuevo orden</string>
     <string name="app_library">Biblioteca de aplicaciones</string>
+    <string name="continue_watching">Seguir viendo</string>
     <string name="library_empty">No hay aplicaciones que se puedan abrir</string>
     <string name="library_on_home">En Inicio</string>
     <string name="library_add_home">Añadir a Inicio</string>

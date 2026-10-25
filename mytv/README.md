@@ -39,8 +39,23 @@ move or remove it.
 
 - `dock_apps`: Prime Video, HBO Max (`com.wbd.stream`), SkyShowtime, Wholphin.
 - `live_tv_package`: `com.tcl.tv` (Live TV at the end of the Inputs menu).
+- `columns`: 5 tiles per row, so the dock has 5 slots; with 4 `dock_apps` the fifth takes the first grid app.
+- `watch_next_row`: the Continue watching row above the dock (see below).
 - Screensaver: the launcher's clock, set with
   `tools/tv.py "settings put secure screensaver_components com.kermes.tvhome/.ClockDream"`.
+
+## Continue watching
+
+`watch_next_row` (fork-only: `WatchNext.java`, `Posters.java`, `WatchNextRow.java`) shows the shows other apps put
+in Android's Watch Next list, newest first, one card per show, in the space above the dock where the focused app's
+name used to be. Up from the dock goes to the row, Up again to the top bar; OK opens the episode in its app.
+
+- Source: the TV provider's `watch_next_program` table. On this TV Prime Video, HBO Max, SkyShowtime, Jellyfin,
+  Wholphin and Moonfin publish rows; **Netflix does not** (it only feeds Google's own home), so it never shows.
+- Needs `READ_TV_LISTINGS` (granted by `build-and-install.sh`) and **`INTERNET`**, for the https:// posters from
+  Prime, HBO and SkyShowtime. This is the only network use and a deliberate break from upstream's no-network rule.
+  Posters are held in memory only (6 MB cache), nothing is written to disk.
+- Turn it off with `watch_next_row` false; the INTERNET permission stays in the manifest until removed by hand.
 
 ## Remote buttons
 

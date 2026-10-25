@@ -1,0 +1,120 @@
+package com.kermes.tvhome;
+
+import android.content.Context;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.LruCache;
+
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.InputStream;
+import java.net.HttpURLConnection;
+import java.net.URL;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.function.Consumer;
+
+/**
+ * Poster images for the Continue watching row, the launcher's only use of the network: the https:// posters
+ * that streaming apps put in their Watch Next rows. Each one is decoded straight down to about the largest card's
+ * width (on a 1080p TV a 1280-wide poster becomes a 640-wide RGB_565 bitmap, ~230 KB) and kept in a small memory
+ * cache, so coming back to Home does not fetch the row again. Nothing is written to disk.
+ */
+final class Posters {
+    /** The largest download read; anything bigger is not a poster. */
+    private static final int MAX_BYTES = 4 * 1024 * 1024;
+    private static final int TIMEOUT_MS = 8000;
+    private static final ExecutorService LOADER = Executors.newFixedThreadPool(2);
+    private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final LruCache<String, Bitmap> CACHE = new LruCache<String, Bitmap>(6 * 1024 * 1024) {
+        @Override
+        protected int sizeOf(String key, Bitmap value) {
+            return value.getAllocationByteCount();
+        }
+    };
+
+    private Posters() {
+    }
+
+    static Bitmap cached(String uri, int width) {
+        return CACHE.get(key(uri, width));
+    }
+
+    /** Decodes uri at about width pixels wide off the main thread; done gets null when it cannot be read. */
+    static void load(Context context, String uri, int width, Consumer<Bitmap> done) {
+        Context app = context.getApplicationContext();
+        LOADER.execute(() -> {
+            Bitmap bitmap = null;
+            try {
+                byte[] bytes = read(app, uri);
+                if (bytes != null) bitmap = decode(bytes, width);
+            } catch (IOException | RuntimeException ignored) {
+                // Offline, a dead link or an app's provider that refuses us: the card keeps its title instead.
+            }
+            if (bitmap != null) CACHE.put(key(uri, width), bitmap);
+            Bitmap result = bitmap;
+            MAIN.post(() -> done.accept(result));
+        });
+    }
+
+    static void trim() {
+        CACHE.evictAll();
+    }
+
+    private static String key(String uri, int width) {
+        return width + "|" + uri;
+    }
+
+    private static byte[] read(Context context, String uri) throws IOException {
+        if (WatchNext.isRemote(uri)) {
+            HttpURLConnection conn = (HttpURLConnection) new URL(uri).openConnection();
+            conn.setConnectTimeout(TIMEOUT_MS);
+            conn.setReadTimeout(TIMEOUT_MS);
+            conn.setInstanceFollowRedirects(true);
+            try {
+                if (conn.getResponseCode() / 100 != 2) return null;
+                try (InputStream in = conn.getInputStream()) {
+                    return readAll(in);
+                }
+            } finally {
+                conn.disconnect();
+            }
+        }
+        try (InputStream in = context.getContentResolver().openInputStream(Uri.parse(uri))) {
+            return in == null ? null : readAll(in);
+        }
+    }
+
+    private static byte[] readAll(InputStream in) throws IOException {
+        ByteArrayOutputStream out = new ByteArrayOutputStream(64 * 1024);
+        byte[] buf = new byte[16 * 1024];
+        int n;
+        while ((n = in.read(buf)) > 0) {
+            out.write(buf, 0, n);
+            if (out.size() > MAX_BYTES) return null;
+        }
+        return out.toByteArray();
+    }
+
+    private static Bitmap decode(byte[] bytes, int width) {
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+        if (options.outWidth <= 0) return null;
+        int sample = 1;
+        while (options.outWidth / (sample * 2) >= width) sample *= 2;
+        options.inJustDecodeBounds = false;
+        options.inSampleSize = sample;
+        // No alpha in a poster: half the memory of ARGB_8888.
+        options.inPreferredConfig = Bitmap.Config.RGB_565;
+        Bitmap decoded = BitmapFactory.decodeByteArray(bytes, 0, bytes.length, options);
+        if (decoded == null || decoded.getWidth() <= width * 3 / 2) return decoded;
+        Bitmap scaled = Bitmap.createScaledBitmap(decoded, width,
+                Math.max(1, Math.round(decoded.getHeight() * (width / (float) decoded.getWidth()))), true);
+        if (scaled != decoded) decoded.recycle();
+        return scaled;
+    }
+}

@@ -319,9 +319,15 @@
          for bigger tiles when rows_below_dock is 2 or 3. -->
     <bool name="dock_title">true</bool>
 
+    <!-- Continue watching: the shows other apps put in Android's Watch Next list, as a row of posters above the
+         dock, in place of the focused app's name (docs/watch-next.md). Needs READ_TV_LISTINGS, which
+         build-and-install grants, and loads the apps' https:// posters over the network. Apps that publish nothing
+         there (Netflix) never show. -->
+    <bool name="watch_next_row">true</bool>
+
     <!-- Tiles per row in the grid; the dock always has this many slots. Tiles are 180dp wide at 4 columns and
          shrink to fit from 5 up (about 144dp at 5, 117dp at 6 on a 1080p TV). -->
-    <integer name="columns">4</integer>
+    <integer name="columns">5</integer>
 
     <!-- Basic motion is on; advanced effects are opt-in in the launcher's own Settings screen. -->
     <bool name="animations">true</bool>

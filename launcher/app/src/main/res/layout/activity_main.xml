@@ -386,6 +386,52 @@
         </FrameLayout>
     </LinearLayout>
 
+    <!-- Continue watching (watch_next_row): the apps' Watch Next rows, in the top shelf's place above the dock.
+         Positioned and sized in code (MainActivity.placeWatchNext); shown only while the dock or the row has focus. -->
+    <com.kermes.tvhome.WatchNextRow
+        android:id="@+id/watchNext"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:alpha="0"
+        android:visibility="gone"
+        android:clipChildren="false"
+        android:clipToPadding="false">
+        <TextView
+            android:id="@+id/watchNextHeader"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="82dp"
+            android:text="@string/continue_watching"
+            android:textColor="#B3FFFFFF"
+            android:textSize="12sp"
+            android:fontFamily="@string/font_medium"
+            android:letterSpacing="0.22"
+            android:textAllCaps="true" />
+        <HorizontalScrollView
+            android:id="@+id/watchNextScroll"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:scrollbars="none"
+            android:overScrollMode="never"
+            android:requiresFadingEdge="horizontal"
+            android:fadingEdgeLength="56dp"
+            android:clipChildren="false"
+            android:clipToPadding="false">
+            <LinearLayout
+                android:id="@+id/watchNextStrip"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingStart="80dp"
+                android:paddingEnd="80dp"
+                android:paddingTop="12dp"
+                android:paddingBottom="4dp"
+                android:clipChildren="false"
+                android:clipToPadding="false" />
+        </HorizontalScrollView>
+    </com.kermes.tvhome.WatchNextRow>
+
     <!-- The single floating glass highlight that springs between tiles. -->
     <com.kermes.tvhome.GlassView
         android:id="@+id/glass"

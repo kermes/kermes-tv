@@ -141,6 +141,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private View hero;
     private TextView heroMeta;
     private LinearLayout heroDots;
+    /** Continue watching above the dock (watch_next_row), in the shelf's place; null when off. */
+    private WatchNextRow watchNext;
+    private boolean watchNextShown;
+    /** dock_title: what the shelf's visibility goes back to when Continue watching is empty. */
+    private int heroVisibility = View.VISIBLE;
+    /** The dock's top in root coordinates when the shelf was last placed, so a row that loads later can be placed. */
+    private float lastDockTop = -1f;
     /** Cinematic top shelf (config.xml, cinematic_home): the focused dock app's artwork behind a larger shelf. */
     private boolean cinematic;
     /** config.xml ambient_glow, overridable by a theme. Off: the glow view is gone and no fade or colour animator
@@ -446,6 +453,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // dock_title false: the name above the dock (and the cinematic lines under it) never shows; the glow
         // still follows the dock.
         if (!cfg.dockTitle) hero.setVisibility(View.GONE);
+        heroVisibility = hero.getVisibility();
+        if (getResources().getBoolean(R.bool.watch_next_row) && dockRow && !singleRow) setUpWatchNext();
         greeting = findViewById(R.id.greeting);
         clockBlock = findViewById(R.id.leftBlock);
         greetingColor = greeting.getCurrentTextColor();
@@ -764,8 +773,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return true;
             if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
-                // Back to the dock tile Up came from, not wherever the focus finder lands.
-                focusTile(singleRow ? lastFocused : lastFocused % COLUMNS);
+                // Back to the dock tile Up came from (or Continue watching above it), not wherever the focus finder lands.
+                if (watchNextShown) watchNext.focusRemembered();
+                else focusTile(singleRow ? lastFocused : lastFocused % COLUMNS);
                 return true;
             }
             int firstButton = btnInputs.getVisibility() == View.VISIBLE ? R.id.btnInputs : firstTopButton().getId();
@@ -947,6 +957,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (openLiveTvAfterBoot()) return;
         updateGreeting();
         updateRace();
+        if (watchNext != null) loadWatchNext();
         // The network and Inputs pills keep their state while Home is in the background, and callbacks update them
         // when the network or the inputs change, so this refresh only catches anything missed. Its binder calls
         // (about 7 ms on a TCL C755, most of it WifiManager.getConnectionInfo) would hold up the first frame back
@@ -1172,6 +1183,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         grid.getRecycledViewPool().clear();
         heroArtCache.clear();
         heroArtKey = null;
+        Posters.trim();
         wallpaperPlayer.releaseForMemoryPressure();
         tileRefresh.invalidate();
     }
@@ -1689,6 +1701,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     // ---- top shelf -------------------------------------------------------------------------------
 
     private void showHero(int position, float dockTopInRoot) {
+        lastDockTop = dockTopInRoot;
+        if (watchNext != null && watchNext.hasItems()) placeWatchNext(dockTopInRoot);
         String label = adapter.labelAt(position);
         int color = adapter.ambientColorAt(position);
         float y = dockTopInRoot - 14 * density - 26 * density - hero.getHeight();
@@ -1967,6 +1981,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         heroArt.animate().cancel();
         heroArt.setAlpha(0f);
         heroShown = false;
+        hideWatchNext();
         if (!ambientGlow) return;
         if (!animations || reducedMotion) {
             setAmbient(color);
@@ -1985,6 +2000,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     private void hideHero() {
+        hideWatchNext();
         if (!heroShown) return;
         stopAmbientAnimation();
         hero.animate().cancel();
@@ -2000,6 +2016,96 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             ambient.setAlpha(0f);
             heroArt.setAlpha(0f);
         }
+    }
+
+    // ---- Continue watching (watch_next_row) -------------------------------------------------------
+
+    private void setUpWatchNext() {
+        watchNext = findViewById(R.id.watchNext);
+        // Invisible rather than gone: laid out, so it has a height to place by, but never focusable while hidden.
+        watchNext.setVisibility(View.INVISIBLE);
+        watchNext.setListener(new WatchNextRow.Listener() {
+            @Override
+            public void onWatchNextOpen(WatchNext.Item item) {
+                Intent intent = WatchNext.intentFor(MainActivity.this, item);
+                if (intent != null) open(intent);
+            }
+
+            @Override
+            public void onWatchNextLeave(boolean up) {
+                if (up) (btnInputs.getVisibility() == View.VISIBLE ? btnInputs : firstTopButton()).requestFocus();
+                else focusTile(lastFocused % COLUMNS);
+            }
+        });
+    }
+
+    /** Reads the Watch Next rows on every return to Home: an app adds its row while it plays, behind Home's back. */
+    private void loadWatchNext() {
+        WatchNext.loadAsync(this, items -> {
+            if (isDestroyed()) return;
+            watchNext.setItems(items);
+            if (!watchNext.hasItems()) {
+                hideWatchNext();
+                hero.setVisibility(heroVisibility);
+                return;
+            }
+            // The row takes the shelf's place: the glow still follows the dock, the big name does not show.
+            hero.setVisibility(heroVisibility == View.GONE ? View.GONE : View.INVISIBLE);
+            if (heroShown && lastDockTop >= 0f) watchNext.post(() -> placeWatchNext(lastDockTop));
+        });
+    }
+
+    /**
+     * Puts the row just above the dock, its posters as tall as the space under the header allows (16:9, between
+     * WatchNextRow's MIN_POSTER_DP and MAX_POSTER_DP), and fades it in. Runs again after a resize, once the cards
+     * are laid out at the new size.
+     */
+    private void placeWatchNext(float dockTop) {
+        if (watchNext.getHeight() == 0) {
+            watchNext.post(() -> {
+                if (watchNext.getHeight() > 0 && heroShown) placeWatchNext(dockTop);
+            });
+            return;
+        }
+        float top = Math.max(bottomInRoot(clockBlock), bottomInRoot(findViewById(R.id.topButtons))) + 20 * density;
+        float bottom = dockTop - 22 * density;
+        int around = watchNext.getHeight() - watchNext.posterHeight();
+        int want = (int) Math.max(WatchNextRow.MIN_POSTER_DP * density,
+                Math.min(WatchNextRow.MAX_POSTER_DP * density, bottom - top - around));
+        if (Math.abs(want - watchNext.posterHeight()) > 2 * density) {
+            watchNext.setPosterHeight(want);
+            watchNext.post(() -> {
+                if (heroShown) placeWatchNext(dockTop);
+            });
+            return;
+        }
+        watchNext.setY(bottom - watchNext.getHeight());
+        if (watchNextShown) return;
+        watchNextShown = true;
+        watchNext.animate().cancel();
+        watchNext.setVisibility(View.VISIBLE);
+        if (animations && !reducedMotion) watchNext.animate().alpha(1f).setDuration(260).start();
+        else watchNext.setAlpha(1f);
+    }
+
+    private void hideWatchNext() {
+        if (watchNext == null || !watchNextShown) return;
+        watchNextShown = false;
+        watchNext.animate().cancel();
+        if (animations && !reducedMotion) {
+            watchNext.animate().alpha(0f).setDuration(160).withEndAction(() -> {
+                if (!watchNextShown) watchNext.setVisibility(View.INVISIBLE);
+            }).start();
+        } else {
+            watchNext.setAlpha(0f);
+            watchNext.setVisibility(View.INVISIBLE);
+        }
+    }
+
+    private float bottomInRoot(View v) {
+        Rect r = new Rect(0, 0, v.getWidth(), v.getHeight());
+        root.offsetDescendantRectToMyCoords(v, r);
+        return r.bottom;
     }
 
     private void hideGlass() {
@@ -2232,7 +2338,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     rtlAppGrid, keyCode == KeyEvent.KEYCODE_DPAD_LEFT);
         }
         if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-            if (position < COLUMNS) return false;          // dock row: let focus move to the top bar
+            if (position < COLUMNS) {
+                if (!watchNextShown) return false;         // dock row: let focus move to the top bar
+                watchNext.focusRemembered();
+                grid.playSoundEffect(SoundEffectConstants.NAVIGATION_UP);
+                return true;
+            }
             target = position - COLUMNS;
         } else {
             int lastRowStart = ((count - 1) / COLUMNS) * COLUMNS;
