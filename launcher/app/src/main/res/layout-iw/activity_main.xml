@@ -32,6 +32,24 @@
         android:layout_height="match_parent"
         android:alpha="0" />
 
+    <!-- Recommendations hero (recs_hero): the current title's backdrop over the top of Home, faded into the black
+         below by its scrim. Sized in code to end under Continue watching's header; hidden while the grid is up. -->
+    <ImageView
+        android:id="@+id/recsBackdrop"
+        android:layout_width="match_parent"
+        android:layout_height="380dp"
+        android:scaleType="centerCrop"
+        android:alpha="0"
+        android:visibility="gone"
+        android:importantForAccessibility="no" />
+    <View
+        android:id="@+id/recsScrim"
+        android:layout_width="match_parent"
+        android:layout_height="380dp"
+        android:background="@drawable/recs_scrim"
+        android:alpha="0"
+        android:visibility="gone"
+        android:importantForAccessibility="no" />
     <!-- Race-weekend panel (a theme's race_calendar, see RaceWeekend), mirrored: under the clock on the right. -->
     <LinearLayout
         android:id="@+id/racePanel"
@@ -399,6 +417,73 @@
                 android:scrollbars="none"
                 android:descendantFocusability="afterDescendants" />
         </FrameLayout>
+    </LinearLayout>
+
+    <!-- The hero's text under the clock: the title, and a line with its service, kind and scores. Focusable: Left and Right change the
+         title, OK opens its service. Placed in code (MainActivity.placeRecs) by a layout margin, so focus search
+         sees it where it is drawn. -->
+    <LinearLayout
+        android:id="@+id/recsInfo"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="54dp"
+        android:paddingStart="14dp"
+        android:paddingEnd="16dp"
+        android:paddingTop="8dp"
+        android:paddingBottom="8dp"
+        android:orientation="vertical"
+        android:focusable="true"
+        android:background="@drawable/watch_next_focus"
+        android:alpha="0"
+        android:visibility="gone">
+        <TextView
+            android:id="@+id/recsTitle"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxWidth="560dp"
+            android:singleLine="true"
+            android:ellipsize="end"
+            android:textColor="#FFFFFFFF"
+            android:textSize="34sp"
+            android:fontFamily="@string/font_light"
+            android:letterSpacing="-0.01"
+            android:includeFontPadding="false" />
+        <TextView
+            android:id="@+id/recsMeta"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="8dp"
+            android:singleLine="true"
+            android:textColor="#D9FFFFFF"
+            android:textSize="14sp"
+            android:fontFamily="@string/font_medium" />
+    </LinearLayout>
+    <!-- Shown only while the hero has focus, over the top of Continue watching (which dims): the synopsis and a dot
+         per title. Placed in code right under recsInfo. -->
+    <LinearLayout
+        android:id="@+id/recsMore"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_marginStart="68dp"
+        android:orientation="vertical"
+        android:visibility="invisible">
+        <TextView
+            android:id="@+id/recsOverview"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:maxWidth="560dp"
+            android:maxLines="3"
+            android:ellipsize="end"
+            android:textColor="#E6FFFFFF"
+            android:textSize="15sp"
+            android:lineSpacingExtra="2dp"
+            android:fontFamily="@string/font_body" />
+        <LinearLayout
+            android:id="@+id/recsDots"
+            android:layout_width="wrap_content"
+            android:layout_height="6dp"
+            android:layout_marginTop="14dp"
+            android:orientation="horizontal" />
     </LinearLayout>
 
     <!-- Continue watching (watch_next_row): the apps' Watch Next rows, in the top shelf's place above the dock.

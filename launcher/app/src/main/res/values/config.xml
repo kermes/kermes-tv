@@ -32,6 +32,36 @@
          which build-and-install sets; without it the dock is dock_apps as usual. -->
     <bool name="recent_dock">true</bool>
 
+    <!-- Recommendations hero: recent films and series on your own services that critics and audiences both rate
+         well (Recs), as a backdrop over the top of Home with the title, scores and service. Needs TMDB and OMDb keys
+         in work/recs.properties at build time; without them it stays off. Fetched once a day. -->
+    <bool name="recs_hero">true</bool>
+    <!-- The country whose catalogue and services count (TMDB watch region, ISO 3166-1). -->
+    <string name="recs_region" translatable="false">ES</string>
+    <!-- Services the hero knows: "key|name|TMDB provider ids for recs_region|app package". Ids from TMDB's
+         /watch/providers/movie?watch_region=ES; a service with two ids (with ads, a second tier) lists both. -->
+    <string-array name="recs_services" translatable="false">
+        <item>prime|Prime Video|119,2100|com.amazon.amazonvideo.livingroom</item>
+        <item>hbo|HBO Max|1899|com.wbd.stream</item>
+        <item>skyshowtime|SkyShowtime|1773|com.skyshowtime.skyshowtime.google</item>
+        <item>movistar|Movistar Plus+|2241,149|com.movistarplus.androidtv</item>
+        <item>netflix|Netflix|8,1796|com.netflix.ninja</item>
+        <item>disney|Disney+|337|com.disney.disneyplus</item>
+        <item>atresplayer|Atresplayer|62|com.antena3.atresplayer.tv</item>
+        <item>rtve|RTVE Play|541|com.rtve.androidtv</item>
+        <item>pluto|Pluto TV|300|tv.pluto.android</item>
+    </string-array>
+    <!-- The services counted until they are picked on the TV (Launcher settings, My services). -->
+    <string-array name="recs_default_services" translatable="false">
+        <item>prime</item>
+        <item>hbo</item>
+        <item>skyshowtime</item>
+        <item>movistar</item>
+        <item>atresplayer</item>
+        <item>rtve</item>
+        <item>pluto</item>
+    </string-array>
+
     <!-- Apps never shown as tiles (e.g. the Live TV app, which the Inputs menu already covers). -->
     <string-array name="hidden_apps">
         <item>com.tcl.dashboard</item>

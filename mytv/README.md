@@ -62,6 +62,24 @@ name used to be. Up from the dock goes to the row, Up again to the top bar; OK o
   Posters are held in memory only (6 MB cache), nothing is written to disk.
 - Turn it off with `watch_next_row` false; the INTERNET permission stays in the manifest until removed by hand.
 
+## Recommendations hero
+
+`recs_hero` (fork-only: `Recs.java`, hero code in `MainActivity`) puts a recommended film or series over the top of
+Home: its backdrop behind the clock, then the title and a line with the service, kind, year and scores. It rotates
+every 10 s; Up from Continue watching focuses it, which shows the synopsis and a dot per title; Left/Right change
+the title, OK opens the service's app (at its start screen: no deep link into the title yet).
+
+- **Source:** TMDB for what is new and where it streams in Spain (JustWatch data), OMDb for IMDb, Rotten Tomatoes
+  and Metacritic. Rotten Tomatoes itself has no affordable API. Fetched at most once every 20 h, cached on the TV.
+- **Rules** (in `Recs.java`'s header): films from the last year need critics (RT ≥ 80% or MC ≥ 70) and audience
+  (IMDb ≥ 6.8 or TMDB ≥ 7.0); series must be new or have a new season (5th at most) in the last 120 days, and
+  IMDb/TMDB ≥ 7.6 (OMDb has no series critic score). Kids, news, reality, soap and talk shows are left out.
+- **Services:** hold OK on Ajustes → Launcher settings → **Mis servicios** to tick them on and off. Mediaset
+  Infinity is not in TMDB's Spanish provider list, so it cannot be a source.
+- **Keys:** `work/recs.properties` (`tmdb_token=`, `omdb_key=`), read at build time into the APK; git ignores `work/`.
+  Without them the hero is off. TMDB's free tier asks for its credit line, shown under Mis servicios.
+- With the hero on, the dock's coloured glow is off, so the backdrop fades into plain black.
+
 ## Remote buttons
 
 Found with `logcat -v time` while pressing the real buttons (`handleKeyBeforeQueueing ... keyCode=`).

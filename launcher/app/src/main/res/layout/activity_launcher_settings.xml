@@ -111,6 +111,23 @@
             android:textColor="#FFACB8C1"
             android:textSize="14sp" />
 
+        <!-- recs_hero: which services the recommendations come from, and the data sources' credit. -->
+        <TextView
+            android:id="@+id/servicesChoice"
+            style="@style/SettingsRow"
+            android:layout_marginTop="28dp"
+            android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/recsCredit"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="7dp"
+            android:text="@string/recs_credit"
+            android:textColor="#FFACB8C1"
+            android:textSize="14sp"
+            android:visibility="gone" />
+
         <TextView
             android:id="@+id/openOnStartChoice"
             style="@style/SettingsRow"

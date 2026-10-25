@@ -598,6 +598,8 @@ and a wallpaper.
     Follow theme, or push the theme again.
   - **Animations** on or off, and **Advanced effects** (tile lift, icon zoom and smooth ambient-colour
     transitions; they may use more memory) once animations are on.
+  - **My services**, only with `recs_hero` (fork-only): the streaming services the recommendations hero takes
+    titles from, ticked on and off as subscriptions come and go.
   - **Open on start**, only with `open_on_start_choice`: Off, or an app that opens instead of Home the first
     time Home comes up after the TV starts. Once per boot, so Home and Back still reach the launcher.
   - **Follow theme (reset on-TV choices)**, which clears every choice above. Pushing or resetting a theme

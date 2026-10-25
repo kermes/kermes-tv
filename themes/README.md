@@ -60,6 +60,10 @@ A new key needs one there in the same pull request.
 | `dock_title` | bool | The focused dock app's name in large type above the dock (`true`); `false` keeps only the glow |
 | `watch_next_row` | bool, `config.xml` only | Continue watching above the dock, in the shelf's place: other apps' Watch Next rows with their posters (`READ_TV_LISTINGS` and network for the posters; fork-only). Not read from a theme |
 | `recent_dock` | bool, `config.xml` only | The dock holds the most recently used apps, newest first, from usage stats (`GET_USAGE_STATS` app op); `dock_apps` follow them and fill a short dock (fork-only). Not read from a theme |
+| `recs_hero` | bool, `config.xml` only | Recommendations hero over the top of Home: recent films and series on your services that critics and audiences both rate well (TMDB and OMDb, keys in `work/recs.properties`; fork-only). Not read from a theme |
+| `recs_region` | string, `config.xml` only | The country whose catalogue and services `recs_hero` uses, e.g. `ES`. Not read from a theme |
+| `recs_services` | list, `config.xml` only | Services `recs_hero` knows, `key\|name\|TMDB provider ids\|app package`. Not read from a theme |
+| `recs_default_services` | list, `config.xml` only | The `recs_services` keys counted until **My services** is set on the TV. Not read from a theme |
 | `dock_row` | bool | The dock as its own row with a band (`true`); `false` makes the dock apps the first tiles of one plain grid |
 | `reorder_button` | bool | A reorder button in the top bar (`false` by default); reordering is always in the Settings button's long-press menu |
 | `show_network_pill` | bool | The Wi-Fi/Ethernet pill in the top bar (`true` by default); `false` hides it |

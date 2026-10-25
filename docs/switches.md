@@ -51,3 +51,7 @@ fits the rules; keys from before the rule sit on its wanted list until a screens
 | `date_below_clock` | <img src="switches/date_below_clock.jpg" width="320" alt="date_below_clock on a TV"> |
 | `watch_next_row` | <img src="switches/watch_next_row.jpg" width="320" alt="watch_next_row on a TV"> |
 | `recent_dock` | <img src="switches/recent_dock.jpg" width="320" alt="recent_dock on a TV"> |
+| `recs_hero` | <img src="switches/recs_hero.jpg" width="320" alt="recs_hero on a TV"> |
+| `recs_region` | <img src="switches/recs_hero.jpg" width="320" alt="recs_region on a TV"> |
+| `recs_services` | <img src="switches/recs_hero.jpg" width="320" alt="recs_services on a TV"> |
+| `recs_default_services` | <img src="switches/recs_hero.jpg" width="320" alt="recs_default_services on a TV"> |

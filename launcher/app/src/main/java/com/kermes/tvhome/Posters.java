@@ -18,10 +18,10 @@ import java.util.concurrent.Executors;
 import java.util.function.Consumer;
 
 /**
- * Poster images for the Continue watching row, the launcher's only use of the network: the https:// posters
- * that streaming apps put in their Watch Next rows. Each one is decoded straight down to about the largest card's
- * width (on a 1080p TV a 1280-wide poster becomes a 640-wide RGB_565 bitmap, ~230 KB) and kept in a small memory
- * cache, so coming back to Home does not fetch the row again. Nothing is written to disk.
+ * Images from the network: the https:// posters streaming apps put in their Watch Next rows (Continue watching), and
+ * the recommendations hero's backdrops. Each one is decoded straight down to about the width it is shown at (on a
+ * 1080p TV a 1280-wide poster becomes a 640-wide RGB_565 bitmap, ~230 KB; a backdrop 960 wide, ~1 MB) and kept in a
+ * 16 MB memory cache, so coming back to Home does not fetch them again. Nothing is written to disk.
  */
 final class Posters {
     /** The largest download read; anything bigger is not a poster. */
@@ -29,7 +29,7 @@ final class Posters {
     private static final int TIMEOUT_MS = 8000;
     private static final ExecutorService LOADER = Executors.newFixedThreadPool(2);
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
-    private static final LruCache<String, Bitmap> CACHE = new LruCache<String, Bitmap>(6 * 1024 * 1024) {
+    private static final LruCache<String, Bitmap> CACHE = new LruCache<String, Bitmap>(16 * 1024 * 1024) {
         @Override
         protected int sizeOf(String key, Bitmap value) {
             return value.getAllocationByteCount();

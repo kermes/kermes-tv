@@ -52,6 +52,13 @@
     <string name="reorder_not_saved">No se pudo guardar el nuevo orden</string>
     <string name="app_library">Biblioteca de aplicaciones</string>
     <string name="continue_watching">Seguir viendo</string>
+    <string name="recs_label">Recomendado</string>
+    <string name="recs_film">Película</string>
+    <string name="recs_series">Serie</string>
+    <string name="recs_new_series">Serie nueva</string>
+    <string name="recs_season">Temporada %1$d</string>
+    <string name="my_services">Mis servicios</string>
+    <string name="my_services_hint">Las recomendaciones solo salen de estos servicios.</string>
     <string name="library_empty">No hay aplicaciones que se puedan abrir</string>
     <string name="library_on_home">En Inicio</string>
     <string name="library_add_home">Añadir a Inicio</string>

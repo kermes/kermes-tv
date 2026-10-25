@@ -150,6 +150,24 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private float lastDockTop = -1f;
     /** recent_dock: the dock holds the most recently used apps (RecentApps), read again on every return to Home. */
     private boolean recentDock;
+    /** Recommendations hero (recs_hero): backdrop, the focusable text under the clock, and the synopsis under it. */
+    private ImageView recsBackdrop;
+    private View recsScrim, recsInfo, recsMore;
+    private TextView recsTitle, recsMeta, recsOverview;
+    private LinearLayout recsDots;
+    private List<Recs.Item> recs = Collections.emptyList();
+    private int recsIndex;
+    private boolean recsOn, recsShown;
+    private static final long RECS_ROTATE_MS = 10_000;
+    /** Backdrops are decoded this wide: soft at full screen, but they sit under a scrim, and ten fit in memory. */
+    private static final int RECS_BACKDROP_PX = 960;
+    private final Runnable recsRotate = new Runnable() {
+        @Override
+        public void run() {
+            if (recsShown && !recsInfo.hasFocus() && recs.size() > 1) showRec(recsIndex + 1);
+            handler.postDelayed(this, RECS_ROTATE_MS);
+        }
+    };
     /** Cinematic top shelf (config.xml, cinematic_home): the focused dock app's artwork behind a larger shelf. */
     private boolean cinematic;
     /** config.xml ambient_glow, overridable by a theme. Off: the glow view is gone and no fade or colour animator
@@ -458,6 +476,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         heroVisibility = hero.getVisibility();
         if (getResources().getBoolean(R.bool.watch_next_row) && dockRow && !singleRow) setUpWatchNext();
         recentDock = getResources().getBoolean(R.bool.recent_dock) && dockRow && !singleRow;
+        if (getResources().getBoolean(R.bool.recs_hero) && Recs.configured() && dockRow && !singleRow) setUpRecs();
         greeting = findViewById(R.id.greeting);
         clockBlock = findViewById(R.id.leftBlock);
         greetingColor = greeting.getCurrentTextColor();
@@ -777,7 +796,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return true;
             if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
                 // Back to the dock tile Up came from (or Continue watching above it), not wherever the focus finder lands.
-                if (watchNextShown) watchNext.focusRemembered();
+                if (recsShown) recsInfo.requestFocus();
+                else if (watchNextShown) watchNext.focusRemembered();
                 else focusTile(singleRow ? lastFocused : lastFocused % COLUMNS);
                 return true;
             }
@@ -969,6 +989,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         updateGreeting();
         updateRace();
         if (watchNext != null) loadWatchNext();
+        if (recsOn) {
+            loadRecs();
+            handler.removeCallbacks(recsRotate);
+            handler.postDelayed(recsRotate, RECS_ROTATE_MS);
+        }
         // The network and Inputs pills keep their state while Home is in the background, and callbacks update them
         // when the network or the inputs change, so this refresh only catches anything missed. Its binder calls
         // (about 7 ms on a TCL C755, most of it WifiManager.getConnectionInfo) would hold up the first frame back
@@ -1157,6 +1182,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         ambient.animate().cancel();
         heroArt.animate().cancel();
         handler.removeCallbacks(minuteTick);
+        handler.removeCallbacks(recsRotate);
         stopStats();
         if (diya != null) diya.stop();
         cancelPendingFocusScroll();
@@ -1713,6 +1739,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     private void showHero(int position, float dockTopInRoot) {
         lastDockTop = dockTopInRoot;
+        if (recsOn && !recs.isEmpty()) showRecs(dockTopInRoot);
         if (watchNext != null && watchNext.hasItems()) placeWatchNext(dockTopInRoot);
         String label = adapter.labelAt(position);
         int color = adapter.ambientColorAt(position);
@@ -1993,6 +2020,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         heroArt.setAlpha(0f);
         heroShown = false;
         hideWatchNext();
+        hideRecs();
         if (!ambientGlow) return;
         if (!animations || reducedMotion) {
             setAmbient(color);
@@ -2012,6 +2040,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     private void hideHero() {
         hideWatchNext();
+        hideRecs();
         if (!heroShown) return;
         stopAmbientAnimation();
         hero.animate().cancel();
@@ -2044,7 +2073,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
             @Override
             public void onWatchNextLeave(boolean up) {
-                if (up) (btnInputs.getVisibility() == View.VISIBLE ? btnInputs : firstTopButton()).requestFocus();
+                if (up && recsShown) recsInfo.requestFocus();
+                else if (up) (btnInputs.getVisibility() == View.VISIBLE ? btnInputs : firstTopButton()).requestFocus();
                 else focusTile(lastFocused % COLUMNS);
             }
         });
@@ -2079,6 +2109,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             return;
         }
         float top = Math.max(bottomInRoot(clockBlock), bottomInRoot(findViewById(R.id.topButtons))) + 20 * density;
+        // The hero's title and scores sit under the clock: the row starts under them.
+        if (recsShown) top = Math.max(top, bottomInRoot(recsInfo) + 14 * density);
         float bottom = dockTop - 22 * density;
         int around = watchNext.getHeight() - watchNext.posterHeight();
         int want = (int) Math.max(WatchNextRow.MIN_POSTER_DP * density,
@@ -2117,6 +2149,191 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         } else {
             watchNext.setAlpha(0f);
             watchNext.setVisibility(View.INVISIBLE);
+        }
+    }
+
+    // ---- recommendations hero (recs_hero) ---------------------------------------------------------
+
+    private void setUpRecs() {
+        recsOn = true;
+        // The backdrop fades into black above the dock; the dock's coloured glow would draw a hard edge there.
+        ambientGlow = false;
+        ambient.setVisibility(View.GONE);
+        recsBackdrop = findViewById(R.id.recsBackdrop);
+        recsScrim = findViewById(R.id.recsScrim);
+        recsInfo = findViewById(R.id.recsInfo);
+        recsMore = findViewById(R.id.recsMore);
+        recsTitle = findViewById(R.id.recsTitle);
+        recsMeta = findViewById(R.id.recsMeta);
+        recsOverview = findViewById(R.id.recsOverview);
+        recsDots = findViewById(R.id.recsDots);
+        // Invisible, not gone, as Continue watching: laid out for placing, never focusable while hidden.
+        for (View v : new View[]{recsBackdrop, recsScrim, recsInfo}) v.setVisibility(View.INVISIBLE);
+        recsInfo.setOnFocusChangeListener((v, focused) -> {
+            // Focused, the hero shows its synopsis over the top of Continue watching, which steps back.
+            recsMore.setVisibility(focused ? View.VISIBLE : View.INVISIBLE);
+            if (watchNextShown) watchNext.animate().alpha(focused ? 0.08f : 1f).setDuration(200).start();
+        });
+        recsInfo.setOnClickListener(v -> {
+            if (recs.isEmpty()) return;
+            Intent intent = Recs.intentFor(this, recs.get(recsIndex));
+            if (intent != null) open(intent);
+        });
+        recsInfo.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            switch (keyCode) {
+                case KeyEvent.KEYCODE_DPAD_LEFT:
+                case KeyEvent.KEYCODE_DPAD_RIGHT:
+                    boolean forward = (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) != rtlAppGrid;
+                    showRec(recsIndex + (forward ? 1 : -1));
+                    v.playSoundEffect(forward ? SoundEffectConstants.NAVIGATION_RIGHT : SoundEffectConstants.NAVIGATION_LEFT);
+                    return true;
+                case KeyEvent.KEYCODE_DPAD_UP:
+                    (btnInputs.getVisibility() == View.VISIBLE ? btnInputs : firstTopButton()).requestFocus();
+                    return true;
+                case KeyEvent.KEYCODE_DPAD_DOWN:
+                    if (watchNextShown) watchNext.focusRemembered();
+                    else focusTile(lastFocused % COLUMNS);
+                    return true;
+                default:
+                    return false;
+            }
+        });
+    }
+
+    /** The cached list at once, a fresh one when it is due (Recs decides); the hero keeps its place in the list. */
+    private void loadRecs() {
+        Recs.loadAsync(this, items -> {
+            if (isDestroyed()) return;
+            String current = recs.isEmpty() ? null : recs.get(recsIndex).title;
+            recs = items;
+            if (recs.isEmpty()) {
+                hideRecs();
+                return;
+            }
+            int keep = 0;
+            for (int i = 0; i < recs.size(); i++) if (recs.get(i).title.equals(current)) keep = i;
+            buildRecDots();
+            showRec(keep);
+            if (heroShown && lastDockTop >= 0f) recsInfo.post(() -> {
+                showRecs(lastDockTop);
+                if (watchNext != null && watchNext.hasItems()) placeWatchNext(lastDockTop);
+            });
+        });
+    }
+
+    /** Places the hero under the clock and its backdrop down to just above the dock, and fades them in. */
+    private void showRecs(float dockTop) {
+        FrameLayout.LayoutParams info = (FrameLayout.LayoutParams) recsInfo.getLayoutParams();
+        int infoTop = Math.round(bottomInRoot(clockBlock) + 14 * density);
+        if (info.topMargin != infoTop) {
+            info.topMargin = infoTop;
+            recsInfo.setLayoutParams(info);
+        }
+        FrameLayout.LayoutParams more = (FrameLayout.LayoutParams) recsMore.getLayoutParams();
+        int moreTop = infoTop + Math.max(recsInfo.getHeight(), Math.round(70 * density)) + Math.round(10 * density);
+        if (more.topMargin != moreTop) {
+            more.topMargin = moreTop;
+            recsMore.setLayoutParams(more);
+        }
+        int backdropHeight = Math.round(dockTop - 30 * density);
+        for (View v : new View[]{recsBackdrop, recsScrim}) {
+            ViewGroup.LayoutParams lp = v.getLayoutParams();
+            if (backdropHeight > 0 && lp.height != backdropHeight) {
+                lp.height = backdropHeight;
+                v.setLayoutParams(lp);
+            }
+        }
+        if (recsShown) return;
+        recsShown = true;
+        for (View v : new View[]{recsBackdrop, recsScrim, recsInfo}) {
+            v.animate().cancel();
+            v.setVisibility(View.VISIBLE);
+            if (animations && !reducedMotion) v.animate().alpha(1f).setDuration(300).start();
+            else v.setAlpha(1f);
+        }
+    }
+
+    private void hideRecs() {
+        if (!recsOn || !recsShown) return;
+        recsShown = false;
+        recsMore.setVisibility(View.INVISIBLE);
+        for (View v : new View[]{recsBackdrop, recsScrim, recsInfo}) {
+            v.animate().cancel();
+            if (animations && !reducedMotion) {
+                v.animate().alpha(0f).setDuration(160).withEndAction(() -> {
+                    if (!recsShown) v.setVisibility(View.INVISIBLE);
+                }).start();
+            } else {
+                v.setAlpha(0f);
+                v.setVisibility(View.INVISIBLE);
+            }
+        }
+    }
+
+    /** Shows title i (wrapping round): its text at once, its backdrop when it has loaded, then the next one fetched. */
+    private void showRec(int i) {
+        if (recs.isEmpty()) return;
+        recsIndex = ((i % recs.size()) + recs.size()) % recs.size();
+        Recs.Item item = recs.get(recsIndex);
+        Recs.Service service = Recs.service(this, item.service);
+        recsTitle.setText(item.title);
+        recsMeta.setText(recMeta(item, service != null ? service.label : item.service));
+        recsOverview.setText(item.overview);
+        recsOverview.setVisibility(item.overview.isEmpty() ? View.GONE : View.VISIBLE);
+        for (int d = 0; d < recsDots.getChildCount(); d++) recsDots.getChildAt(d).setAlpha(d == recsIndex ? 1f : 0.35f);
+        recsInfo.setContentDescription(getString(R.string.recs_label) + ": " + item.title);
+        Bitmap cached = Posters.cached(item.backdrop, RECS_BACKDROP_PX);
+        if (cached != null) {
+            crossfadeBackdrop(cached);
+        } else {
+            final int shown = recsIndex;
+            Posters.load(this, item.backdrop, RECS_BACKDROP_PX, bitmap -> {
+                if (bitmap != null && recsIndex == shown && !isDestroyed()) crossfadeBackdrop(bitmap);
+            });
+        }
+        Recs.Item next = recs.get((recsIndex + 1) % recs.size());
+        if (Posters.cached(next.backdrop, RECS_BACKDROP_PX) == null) {
+            Posters.load(this, next.backdrop, RECS_BACKDROP_PX, bitmap -> { });
+        }
+    }
+
+    /** "HBO Max · Series · Season 4 · 2026   RT 95%   MC 77   IMDb 8.2", with only the scores the title has. */
+    private String recMeta(Recs.Item item, String service) {
+        StringBuilder sb = new StringBuilder(service).append("  ·  ")
+                .append(getString(item.series ? R.string.recs_series : R.string.recs_film));
+        if (item.note != null) sb.append("  ·  ").append(item.note);
+        if (!item.year.isEmpty()) sb.append("  ·  ").append(item.year);
+        if (item.rottenTomatoes >= 0) sb.append("      RT ").append(item.rottenTomatoes).append('%');
+        if (item.metacritic >= 0) sb.append("      MC ").append(item.metacritic);
+        if (item.imdb >= 0) sb.append("      IMDb ").append(String.format(java.util.Locale.ROOT, "%.1f", item.imdb));
+        return sb.toString();
+    }
+
+    private void crossfadeBackdrop(Bitmap bitmap) {
+        recsBackdrop.animate().cancel();
+        if (!animations || reducedMotion || !recsShown) {
+            recsBackdrop.setImageBitmap(bitmap);
+            return;
+        }
+        recsBackdrop.animate().alpha(0.2f).setDuration(180).withEndAction(() -> {
+            recsBackdrop.setImageBitmap(bitmap);
+            recsBackdrop.animate().alpha(recsShown ? 1f : 0f).setDuration(320).start();
+        }).start();
+    }
+
+    private void buildRecDots() {
+        recsDots.removeAllViews();
+        int size = Math.round(6 * density);
+        for (int i = 0; i < recs.size(); i++) {
+            View dot = new View(this);
+            GradientDrawable circle = new GradientDrawable();
+            circle.setShape(GradientDrawable.OVAL);
+            circle.setColor(Color.WHITE);
+            dot.setBackground(circle);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(size, size);
+            lp.setMarginEnd(Math.round(8 * density));
+            recsDots.addView(dot, lp);
         }
     }
 
@@ -2357,8 +2574,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
         if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
             if (position < COLUMNS) {
-                if (!watchNextShown) return false;         // dock row: let focus move to the top bar
-                watchNext.focusRemembered();
+                // dock row: Continue watching, else the hero, else let focus move to the top bar
+                if (!watchNextShown && !recsShown) return false;
+                if (watchNextShown) watchNext.focusRemembered();
+                else recsInfo.requestFocus();
                 grid.playSoundEffect(SoundEffectConstants.NAVIGATION_UP);
                 return true;
             }

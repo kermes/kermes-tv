@@ -2,6 +2,12 @@ plugins {
     id 'com.android.application'
 }
 
+// Keys for the recommendations hero (Recs), from work/recs.properties at the repository root: git ignores work/,
+// so they reach the APK without entering the repo. Missing keys leave them empty and the hero off.
+def recsProps = new Properties()
+def recsFile = rootProject.file('../work/recs.properties')
+if (recsFile.exists()) recsFile.withInputStream { recsProps.load(it) }
+
 android {
     namespace 'com.kermes.tvhome'
     compileSdk 34
@@ -13,6 +19,8 @@ android {
         targetSdk 34
         versionCode 8
         versionName '2.7'
+        buildConfigField 'String', 'TMDB_TOKEN', "\"${recsProps.getProperty('tmdb_token', '').trim()}\""
+        buildConfigField 'String', 'OMDB_KEY', "\"${recsProps.getProperty('omdb_key', '').trim()}\""
     }
 
     buildTypes {
@@ -32,6 +40,10 @@ android {
             // leaving it out saves about 14 KB of every install.
             excludes += ['kotlin/**', 'META-INF/*.version', 'META-INF/*.kotlin_module', 'DebugProbesKt.bin']
         }
+    }
+
+    buildFeatures {
+        buildConfig true
     }
 
     compileOptions {

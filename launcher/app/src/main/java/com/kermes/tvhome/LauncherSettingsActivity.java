@@ -17,7 +17,9 @@ import android.widget.Toast;
 import java.io.File;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 
 /** Remote-friendly settings owned by the launcher; system settings stay one row away. */
 public final class LauncherSettingsActivity extends Activity {
@@ -32,6 +34,7 @@ public final class LauncherSettingsActivity extends Activity {
     private TextView advancedChoice;
     private TextView followThemeChoice;
     private TextView openOnStartChoice;
+    private TextView servicesChoice;
     private int columns;
     private int rowsBelowDock;
     private int dockOpacity;
@@ -128,6 +131,12 @@ public final class LauncherSettingsActivity extends Activity {
             openOnStartChoice.setVisibility(View.VISIBLE);
             openOnStartChoice.setOnClickListener(v -> showOpenOnStartPicker());
         }
+        servicesChoice = findViewById(R.id.servicesChoice);
+        if (getResources().getBoolean(R.bool.recs_hero) && Recs.configured()) {
+            servicesChoice.setVisibility(View.VISIBLE);
+            findViewById(R.id.recsCredit).setVisibility(View.VISIBLE);
+            servicesChoice.setOnClickListener(v -> showServicesPicker());
+        }
         followThemeChoice = findViewById(R.id.followThemeChoice);
         followThemeChoice.setOnClickListener(v -> {
             if (!hasOnTvChoices()) return;
@@ -189,6 +198,33 @@ public final class LauncherSettingsActivity extends Activity {
                 })
                 .setNeutralButton(R.string.wallpaper_theme_default, (dialog, which) -> {
                     choices.edit().remove(Config.WALLPAPER_CHOICE_KEY).apply();
+                    changed();
+                    refresh();
+                })
+                .setNegativeButton(android.R.string.cancel, null)
+                .show();
+    }
+
+    /**
+     * The services the recommendations come from (recs_services), ticked on and off: subscriptions come and go.
+     * Saved on OK; Home fetches a list for the new set on its way back.
+     */
+    private void showServicesPicker() {
+        List<Recs.Service> services = Recs.services(this);
+        Set<String> chosen = Recs.chosen(this);
+        String[] labels = new String[services.size()];
+        boolean[] checked = new boolean[services.size()];
+        for (int i = 0; i < services.size(); i++) {
+            labels[i] = services.get(i).label;
+            checked[i] = chosen.contains(services.get(i).key);
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(R.string.my_services)
+                .setMultiChoiceItems(labels, checked, (dialog, which, isChecked) -> checked[which] = isChecked)
+                .setPositiveButton(android.R.string.ok, (dialog, which) -> {
+                    Set<String> keys = new HashSet<>();
+                    for (int i = 0; i < services.size(); i++) if (checked[i]) keys.add(services.get(i).key);
+                    Recs.setChosen(this, keys);
                     changed();
                     refresh();
                 })
@@ -281,6 +317,13 @@ public final class LauncherSettingsActivity extends Activity {
         }
         animationsChoice.setText(getString(R.string.animations_state,
                 getString(animations ? R.string.on : R.string.off)));
+        if (servicesChoice.getVisibility() == View.VISIBLE) {
+            List<String> names = new ArrayList<>();
+            Set<String> chosen = Recs.chosen(this);
+            for (Recs.Service s : Recs.services(this)) if (chosen.contains(s.key)) names.add(s.label);
+            servicesChoice.setText(getString(R.string.my_services) + ": "
+                    + (names.isEmpty() ? getString(R.string.off) : String.join(", ", names)));
+        }
         advancedChoice.setText(getString(R.string.advanced_effects_state,
                 getString(advancedEffects ? R.string.on : R.string.off)));
         advancedChoice.setEnabled(animations);
