@@ -58,6 +58,8 @@ A new key needs one there in the same pull request.
 | `columns` | 1 to 8 | Tiles per row; tiles shrink to fit from 5 up |
 | `rows_below_dock` | 0 to 3 | Grid rows left visible under the dock; tiles shrink if the dock, its title and that many rows would not fit the screen height |
 | `dock_title` | bool | The focused dock app's name in large type above the dock (`true`); `false` keeps only the glow |
+| `watch_next_row` | bool, `config.xml` only | Continue watching above the dock, in the shelf's place: other apps' Watch Next rows with their posters (`READ_TV_LISTINGS` and network for the posters; fork-only). Not read from a theme |
+| `recent_dock` | bool, `config.xml` only | The dock holds the most recently used apps, newest first, from usage stats (`GET_USAGE_STATS` app op); `dock_apps` follow them and fill a short dock (fork-only). Not read from a theme |
 | `dock_row` | bool | The dock as its own row with a band (`true`); `false` makes the dock apps the first tiles of one plain grid |
 | `reorder_button` | bool | A reorder button in the top bar (`false` by default); reordering is always in the Settings button's long-press menu |
 | `show_network_pill` | bool | The Wi-Fi/Ethernet pill in the top bar (`true` by default); `false` hides it |

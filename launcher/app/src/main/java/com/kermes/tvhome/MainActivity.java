@@ -148,6 +148,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private int heroVisibility = View.VISIBLE;
     /** The dock's top in root coordinates when the shelf was last placed, so a row that loads later can be placed. */
     private float lastDockTop = -1f;
+    /** recent_dock: the dock holds the most recently used apps (RecentApps), read again on every return to Home. */
+    private boolean recentDock;
     /** Cinematic top shelf (config.xml, cinematic_home): the focused dock app's artwork behind a larger shelf. */
     private boolean cinematic;
     /** config.xml ambient_glow, overridable by a theme. Off: the glow view is gone and no fade or colour animator
@@ -455,6 +457,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (!cfg.dockTitle) hero.setVisibility(View.GONE);
         heroVisibility = hero.getVisibility();
         if (getResources().getBoolean(R.bool.watch_next_row) && dockRow && !singleRow) setUpWatchNext();
+        recentDock = getResources().getBoolean(R.bool.recent_dock) && dockRow && !singleRow;
         greeting = findViewById(R.id.greeting);
         clockBlock = findViewById(R.id.leftBlock);
         greetingColor = greeting.getCurrentTextColor();
@@ -899,7 +902,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (intent == null || !intent.hasCategory(Intent.CATEGORY_HOME)) return;
         grid.scrollToPosition(0);
         lastFocused = 0;
-        lastFocusedKey = adapter.getItemCount() > 0 ? adapter.keyAt(0) : null;
+        // recent_dock: the dock is sorted again on the way in, so "first tile" is a slot, not the app now in it
+        // (no key: the refocus falls back on slot 0).
+        lastFocusedKey = recentDock || adapter.getItemCount() == 0 ? null : adapter.keyAt(0);
         if (stopped) {
             tileRefresh.onHomeAgain();
         } else {
@@ -941,6 +946,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         restartIdleClock();
         promptsPaused = false;
         if (grid.getAdapter() == null) grid.setAdapter(adapter);   // dropped by onTrimMemory
+        // recent_dock: the app just used moves into the dock, so the tiles are sorted again (no entrance replay).
+        boolean recentChanged = recentDock && adapter.setRecent(RecentApps.load(this));
         switch (tileRefresh.onResume(packagesChangedSinceRebuild())) {
             case REBUILD:
                 tilesReady = false;
@@ -949,9 +956,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             case REFOCUS:
                 // The same tiles: only the focus goes back, as after a rebuild, without replaying the entrance.
                 tilesReady = false;
-                reloadApps(true, false, false);
+                reloadApps(true, recentChanged, false);
                 break;
             default:
+                if (recentChanged) {
+                    tilesReady = false;
+                    reloadApps(true, true, false);
+                }
                 break;
         }
         if (openLiveTvAfterBoot()) return;

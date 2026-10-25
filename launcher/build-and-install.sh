@@ -133,6 +133,7 @@ fi
 printf '%s\n' \
   "pm grant com.kermes.tvhome android.permission.ACCESS_FINE_LOCATION 2>/dev/null; echo location-granted" \
   "pm grant com.kermes.tvhome android.permission.READ_TV_LISTINGS 2>/dev/null; echo tv-listings-granted" \
+  "appops set com.kermes.tvhome GET_USAGE_STATS allow 2>/dev/null; echo usage-stats-allowed" \
   "cmd package compile -m speed -f com.kermes.tvhome" \
   "$DISABLE_STOCK" \
   "cmd package set-home-activity --user 0 com.kermes.tvhome/.MainActivity" \

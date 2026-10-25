@@ -25,8 +25,8 @@ JAVA_HOME=$(mise where java@temurin-17.0.21+9) STOCK_LAUNCHER=none INPUT_KEY_SER
   launcher/build-and-install.sh
 ```
 
-- `STOCK_LAUNCHER=none`: Google TV's home (launcherx) is already disabled, and Projectivy Launcher is installed
-  as a fallback Home; the script would otherwise stop because it does not recognise Projectivy.
+- `STOCK_LAUNCHER=none`: Google TV's home (launcherx) is already disabled, so there is nothing to disable.
+  Projectivy Launcher was uninstalled on 25 October 2026; Android's `FallbackHome` is the only other Home.
 - Pass both `*_KEY_SERVICE=1` flags on **every** reinstall: a reinstall drops the helpers from the
   accessibility list, and the gear / YouTube / TCL buttons stop working.
 
@@ -39,7 +39,11 @@ move or remove it.
 
 - `dock_apps`: Prime Video, HBO Max (`com.wbd.stream`), SkyShowtime, Wholphin.
 - `live_tv_package`: `com.tcl.tv` (Live TV at the end of the Inputs menu).
-- `columns`: 5 tiles per row, so the dock has 5 slots; with 4 `dock_apps` the fifth takes the first grid app.
+- `columns`: 5 tiles per row, so the dock has 5 slots.
+- `recent_dock`: the dock shows the 5 most recently used apps (however they were opened), newest first; the
+  `dock_apps` that are not recent lead the grid, and fill the dock while there is little history. Reads usage
+  stats (`GET_USAGE_STATS` app op, set by `build-and-install.sh`). Every app shows once: dock or grid.
+- `hidden_apps` includes `com.android.tv.settings`: the Ajustes pill already opens it.
 - `watch_next_row`: the Continue watching row above the dock (see below).
 - Screensaver: the launcher's clock, set with
   `tools/tv.py "settings put secure screensaver_components com.kermes.tvhome/.ClockDream"`.

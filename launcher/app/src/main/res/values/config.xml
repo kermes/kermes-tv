@@ -27,12 +27,18 @@
          set "fill_dock": false. -->
     <bool name="fill_dock">true</bool>
 
+    <!-- The dock shows the most recently used apps (any way they were opened), newest first; dock_apps follow them,
+         first in the grid and filling the dock while there is little history. Needs the GET_USAGE_STATS app op,
+         which build-and-install sets; without it the dock is dock_apps as usual. -->
+    <bool name="recent_dock">true</bool>
+
     <!-- Apps never shown as tiles (e.g. the Live TV app, which the Inputs menu already covers). -->
     <string-array name="hidden_apps">
         <item>com.tcl.dashboard</item>
         <item>com.tcl.partnercustomizer</item>
         <item>com.tcl.suspension</item>
         <item>com.tcl.gallery</item>
+        <item>com.android.tv.settings</item>
     </string-array>
 
     <!-- The TV's Live TV / tuner app, offered at the end of the Inputs menu. Leave empty to omit. -->

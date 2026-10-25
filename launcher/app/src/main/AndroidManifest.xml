@@ -24,6 +24,9 @@
     <!-- watch_next_row: reads other apps' Continue watching rows from the TV provider (runtime permission, granted
          with pm grant by build-and-install), and fetches their poster images. The row is the only network use. -->
     <uses-permission android:name="android.permission.READ_TV_LISTINGS" />
+    <!-- recent_dock: when each app was last on screen. A special app op, set by build-and-install with appops. -->
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS"
+        tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!-- Android 11+ package visibility: lets the launcher list the TV apps it shows as tiles, and the

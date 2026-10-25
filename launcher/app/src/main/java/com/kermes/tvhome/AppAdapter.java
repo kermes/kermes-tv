@@ -192,6 +192,10 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     private final List<String> favourites;
     /** Grid apps fill the dock slots dock_apps leaves free (config.xml, fill_dock). */
     private final boolean fillDock;
+    /** recent_dock: every app by when it was last on screen (RecentApps); empty when off or nothing is known. */
+    private List<String> recent = Collections.emptyList();
+    /** The recent apps that have a tile, newest first, at most a dock's worth: the dock, ahead of dock_apps. */
+    private List<String> recentDock = Collections.emptyList();
     /** Dock apps found at the last reload, and the empty slots after them. */
     private int docked, emptySlots;
     /** Never shown as tiles (res/values/config.xml, hidden_apps). */
@@ -306,7 +310,17 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 fresh.add(new Entry(label, component, banner, icon));
             }
         }
+        Set<String> tilePackages = new HashSet<>();
+        for (Entry e : fresh) tilePackages.add(e.pkg);
+        recentDock = resolveRecent(tilePackages);
         Collections.sort(fresh, (a, b) -> {
+            // recent_dock: the most recently used apps make the dock, whatever the saved order says.
+            int ra = recentDock.indexOf(a.pkg), rb = recentDock.indexOf(b.pkg);
+            if (ra >= 0 || rb >= 0) {
+                if (ra < 0) return 1;
+                if (rb < 0) return -1;
+                return Integer.compare(ra, rb);
+            }
             // The owner's own order first; tiles it does not know (new installs) follow by the rule below.
             int saved = Order.compare(savedRanks, a.component.flattenToShortString(), b.component.flattenToShortString());
             if (saved != 0) return saved;
@@ -560,9 +574,31 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * the owner moved into the dock stays there (#499); else a dock_apps entry.
      */
     private boolean isDocked(Entry e) {
+        // recent_dock: dock_apps come right after the recent apps, so they fill a dock the recents leave short.
+        if (!recentDock.isEmpty()) return recentDock.contains(e.pkg) || favourites.contains(e.pkg);
         if (savedDocked < 0) return favourites.contains(e.pkg);
         Integer rank = savedRanks.get(e.component.flattenToShortString());
         return rank != null && rank < savedDocked;
+    }
+
+    /**
+     * recent_dock: the apps by when they were last on screen, for the next reload(). True when that changes the
+     * dock, so the caller rebuilds only then: an app used in the background, or one without a tile, does not.
+     */
+    boolean setRecent(List<String> packages) {
+        recent = packages;
+        Set<String> tilePackages = new HashSet<>();
+        for (Entry e : items) if (e.kind != Entry.EMPTY) tilePackages.add(e.pkg);
+        return !resolveRecent(tilePackages).equals(recentDock);
+    }
+
+    private List<String> resolveRecent(Set<String> tilePackages) {
+        List<String> dock = new ArrayList<>();
+        for (String pkg : recent) {
+            if (dock.size() == dockSize) break;
+            if (tilePackages.contains(pkg)) dock.add(pkg);
+        }
+        return dock;
     }
 
     /** Reorder mode on or off; takes effect at the next reload() (empty dock slots are left out while on). */
