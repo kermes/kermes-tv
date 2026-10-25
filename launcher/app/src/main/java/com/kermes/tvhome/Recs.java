@@ -70,7 +70,7 @@ final class Recs {
     private static final long MAX_AGE_MS = 20L * 60 * 60 * 1000;
     private static final String CACHE = "recs.json";
     /** Part of the cache's signature: a change to the rules or the item fields makes the next load fetch afresh. */
-    private static final int RULES = 3;
+    private static final int RULES = 4;
     private static final String TMDB = "https://api.themoviedb.org/3";
     private static final String IMAGES = "https://image.tmdb.org/t/p/w1280";
     private static final String TV_GENRES_LEFT_OUT = "10762|10763|10764|10766|10767";

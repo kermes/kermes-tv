@@ -47,6 +47,7 @@
         <item>movistar|Movistar Plus+|2241,149|com.movistarplus.androidtv</item>
         <item>netflix|Netflix|8,1796|com.netflix.ninja</item>
         <item>disney|Disney+|337|com.disney.disneyplus</item>
+        <item>apple|Apple TV|350|com.apple.atve.androidtv.appletv</item>
         <item>atresplayer|Atresplayer|62|com.antena3.atresplayer.tv</item>
         <item>rtve|RTVE Play|541|com.rtve.androidtv</item>
         <item>pluto|Pluto TV|300|tv.pluto.android</item>
