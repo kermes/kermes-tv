@@ -159,6 +159,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private List<Recs.Item> recs = Collections.emptyList();
     private int recsIndex;
     private boolean recsOn, recsShown;
+    /** How far the focused hero pushes Continue watching down (expandRecs), on top of the grid's scroll. */
+    private float recsExpandShift;
+    /** The backdrop's alpha for how far the grid has scrolled: 1 at the dock, down to RECS_DIM_MIN deep in the grid. */
+    private float recsDim = 1f;
+    private static final float RECS_DIM_MIN = 0.3f;
     /** The hero moves on by itself: every 10 s, every 15 s while it has focus (there is a synopsis to read), and
      *  never sooner than that after Left or Right. */
     private static final long RECS_ROTATE_MS = 10_000, RECS_ROTATE_FOCUSED_MS = 15_000;
@@ -671,6 +676,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             // padding, leaving the glass at the XML design size until a key is pressed.
             grid.post(this::refitGlass);
         });
+
+        // Continue watching and the hero move with the grid, so going down reads as one page scrolling.
+        if (watchNext != null || recsOn) {
+            grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
+                @Override
+                public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                    followGridScroll();
+                }
+            });
+        }
 
         // Keep the glass glued to its tile while the grid scrolls.
         grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -2027,8 +2042,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         heroArt.animate().cancel();
         heroArt.setAlpha(0f);
         heroShown = false;
-        hideWatchNext();
-        hideRecs();
+        // Continue watching and the hero stay: they scroll away with the grid (followGridScroll), not fade out.
         if (!ambientGlow) return;
         if (!animations || reducedMotion) {
             setAmbient(color);
@@ -2243,9 +2257,26 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         for (View v : new View[]{recsBackdrop, recsScrim, recsInfo}) {
             v.animate().cancel();
             v.setVisibility(View.VISIBLE);
-            if (animations && !reducedMotion) v.animate().alpha(1f).setDuration(300).start();
-            else v.setAlpha(1f);
+            float to = v == recsBackdrop ? recsDim : 1f;
+            if (animations && !reducedMotion) v.animate().alpha(to).setDuration(300).start();
+            else v.setAlpha(to);
         }
+    }
+
+    /**
+     * The grid scrolled: Continue watching and the hero's text go up with it, as one page, and the backdrop drifts
+     * up at a quarter of the speed and dims with the distance (to RECS_DIM_MIN), instead of the rows vanishing and
+     * the screen cutting to black.
+     */
+    private void followGridScroll() {
+        float off = grid.computeVerticalScrollOffset();
+        if (watchNext != null) watchNext.setTranslationY(recsExpandShift - off);
+        if (!recsOn) return;
+        recsInfo.setTranslationY(-off);
+        recsMore.setTranslationY(-off);
+        recsBackdrop.setTranslationY(-off * 0.25f);
+        recsDim = Math.max(RECS_DIM_MIN, 1f - off / Math.max(1f, root.getHeight() * 0.8f));
+        if (recsShown) recsBackdrop.setAlpha(recsDim);
     }
 
     /**
@@ -2283,8 +2314,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     : lastDockTop - 10 * density;
             shift = Math.max(0f, moreBottom + 28 * density - rowsTop);
         }
+        recsExpandShift = shift;
         long ms = animations && !reducedMotion ? 260 : 0;
-        if (watchNext != null) watchNext.animate().translationY(shift).setDuration(ms).start();
+        if (watchNext != null) {
+            watchNext.animate().translationY(shift - grid.computeVerticalScrollOffset()).setDuration(ms).start();
+        }
         grid.animate().translationY(shift).setDuration(ms).start();
     }
 
@@ -2404,7 +2438,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
         recsBackdrop.animate().alpha(0.2f).setDuration(180).withEndAction(() -> {
             recsBackdrop.setImageBitmap(bitmap);
-            recsBackdrop.animate().alpha(recsShown ? 1f : 0f).setDuration(320).start();
+            recsBackdrop.animate().alpha(recsShown ? recsDim : 0f).setDuration(320).start();
         }).start();
     }
 
