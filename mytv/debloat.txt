@@ -47,7 +47,7 @@ com.google.android.apps.mediashell     # Chromecast built-in
 com.google.android.videos              # Play Movies storefront
 com.google.android.youtube.tvmusic
 com.google.android.tts
-com.google.android.apps.tv.dreamx      # Google photo screensaver (the launcher has a clock screensaver)
+# com.google.android.apps.tv.dreamx    # Google photo screensaver: re-enabled 25 Oct 2026 at the owner's request; works without launcherx
 com.android.printspooler
 com.tcl.ui_mediaCenter                 # USB media player
 com.tcl.gallery                        # USB photo gallery + TCL screensavers

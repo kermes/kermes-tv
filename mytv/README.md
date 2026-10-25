@@ -45,7 +45,8 @@ settings. Holding OK on a tile opens its App info (`tile_menu` is off).
   stats (`GET_USAGE_STATS` app op, set by `build-and-install.sh`). Every app shows once: dock or grid.
 - `hidden_apps` includes `com.android.tv.settings`: the Ajustes pill already opens it.
 - `watch_next_row`: the Continue watching row above the dock (see below).
-- Screensaver: the launcher's clock, set with
+- Screensaver: Google's photo screensaver (dreamx, re-enabled), after the system's 10-minute `screen_off_timeout`.
+  The launcher's clock is the alternative, set with
   `tools/tv.py "settings put secure screensaver_components com.kermes.tvhome/.ClockDream"`.
 
 ## Continue watching
