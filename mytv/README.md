@@ -126,9 +126,10 @@ what you want here). The launcher itself is a normal app: `tools/tv.py 'pm unins
 
 ## Notes from setup
 
-- `tools/disable.sh` with `FORCE_SETUPWRAITH=1` disabled launcherx in the same run as setupwraith; its Home
-  guard did not hold launcherx back on this build. Projectivy Launcher took Home until the new launcher was
-  installed. No saved Wi-Fi network (Ethernet), so disabling setupwraith was safe.
+- `tools/disable.sh` with `FORCE_SETUPWRAITH=1` disabled launcherx in the same run as setupwraith. That is the
+  Home guard working as designed: it only holds the Home owner back when no other launcher could answer Home, and
+  Projectivy Launcher was still installed, so it took Home until the new launcher was. No saved Wi-Fi network
+  (Ethernet), so disabling setupwraith was safe.
 - After a reboot: Home came up as the new launcher, all 36 packages stayed disabled, both helpers bound.
   TCL's `TclAppBoot` blocked only HBO Max's channel-sync job, not the helpers.
 - Packages kept on purpose: `com.tcl.suspension`, `com.tcl.interactive`, `com.tcl.ttvs` (Input button and
