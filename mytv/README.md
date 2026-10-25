@@ -34,8 +34,8 @@ JAVA_HOME=$(mise where java@temurin-17.0.21+9) STOCK_LAUNCHER=none INPUT_KEY_SER
 
 Edit `launcher/app/src/main/res/values/config.xml` and reinstall, or push a `config.json` overlay without
 rebuilding: `tools/theme.sh <folder with config.json>` (keys in `themes/README.md`; `tools/theme.sh --reset`
-removes it). On the TV itself: hold OK on the Ajustes pill for Launcher settings, or hold OK on a tile to
-move or remove it.
+removes it). On the TV itself: hold OK on the Ajustes pill for a menu with "Reordenar apps" and Launcher
+settings. Holding OK on a tile opens its App info (`tile_menu` is off).
 
 - `dock_apps`: Prime Video, HBO Max (`com.wbd.stream`), SkyShowtime, Wholphin.
 - `live_tv_package`: `com.tcl.tv` (Live TV at the end of the Inputs menu).
