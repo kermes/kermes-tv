@@ -2079,7 +2079,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             });
             return;
         }
-        watchNext.setY(bottom - watchNext.getHeight());
+        // A layout margin, not setY: focus search goes by layout position, and a translated row would still sit
+        // level with the top bar for it, so Right from Inputs landed on a card instead of the next pill.
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) watchNext.getLayoutParams();
+        int topMargin = Math.round(bottom - watchNext.getHeight());
+        if (lp.topMargin != topMargin) {
+            lp.topMargin = topMargin;
+            watchNext.setLayoutParams(lp);
+        }
         if (watchNextShown) return;
         watchNextShown = true;
         watchNext.animate().cancel();
