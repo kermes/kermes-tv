@@ -1,3 +1,16 @@
+> **kermes-tv** is a fork of [CleanYourTV](https://github.com/Gathin23/cleanyourtv), set up on a TCL 75Q7C (Google TV 12).
+> Its launcher (package `com.kermes.tvhome`) adds, each behind a `config.xml` switch:
+> - **Continue watching** (`watch_next_row`): other apps' Watch Next rows, with their posters.
+> - **Recent dock** (`recent_dock`): the dock holds the most recently used apps, from usage stats.
+> - **Recommendations hero** (`recs_hero`): recent films and series on your own services that critics and audiences
+>   both rate well, from TMDB and OMDb, over the top of Home; "My services" and "Not interested" on the TV.
+>
+> **Network:** unlike upstream, this launcher has the `INTERNET` permission. It downloads poster images from the
+> streaming apps' own Watch Next rows, and, only with your own TMDB and OMDb keys in `work/recs.properties` at build
+> time, fetches the recommendations once a day. Nothing else is sent: no analytics or telemetry. It also asks for
+> `READ_TV_LISTINGS` and the usage-stats app op (`build-and-install.sh` grants both). The TV's own setup, rules and
+> how-tos are in [`mytv/README.md`](mytv/README.md). Everything below is upstream's README.
+
 <p align="center">
   <a href="https://cleanyour.tv"><img src="https://raw.githubusercontent.com/Gathin23/cleanyourtv/main/docs/banner.png" alt="CleanYourTV. Your TV, minus the ads. Strip the bloatware from any Android TV or Google TV over Wi-Fi and replace the ad-filled home screen with a clean launcher that looks like an Apple TV. No root, no cable, nothing uninstalled, and a one-line restore." width="800"></a>
 </p>
