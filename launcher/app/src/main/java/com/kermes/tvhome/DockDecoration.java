@@ -146,7 +146,14 @@ public class DockDecoration extends RecyclerView.ItemDecoration {
             shaderTop = rect.top;
             shaderBottom = rect.bottom;
         }
+        // Scrolled up under the header (the grid's top edge is where its wrapper cuts it off), the band fades out as
+        // its last 100dp reach that edge, and is gone 30dp before it: deep in the grid its bottom edge would otherwise
+        // stay as a thin outline under the clock.
+        float left = Math.min(1f, (rect.bottom - 30 * density) / (70 * density));
+        if (left <= 0f) return;
+        int layer = left < 1f ? c.saveLayerAlpha(rect, Math.round(255 * left)) : -1;
         c.drawRoundRect(rect, radius, radius, band);
         c.drawRoundRect(rect, radius, radius, edge);
+        if (layer >= 0) c.restoreToCount(layer);
     }
 }
