@@ -163,7 +163,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private float recsExpandShift;
     /** The backdrop's alpha for how far the grid has scrolled: 1 at the dock, down to RECS_DIM_MIN deep in the grid. */
     private float recsDim = 1f;
-    private static final float RECS_DIM_MIN = 0.3f;
+    private static final float RECS_DIM_MIN = 0.08f;
     /** The hero moves on by itself: every 10 s, every 15 s while it has focus (there is a synopsis to read), and
      *  never sooner than that after Left or Right. */
     private static final long RECS_ROTATE_MS = 10_000, RECS_ROTATE_FOCUSED_MS = 15_000;
@@ -2131,7 +2131,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             return;
         }
         float top = Math.max(bottomInRoot(clockBlock), bottomInRoot(findViewById(R.id.topButtons))) + 20 * density;
-        float bottom = dockTop - (recsOn ? 16 : 22) * density;
+        float bottom = dockTop - (recsOn ? 26 : 22) * density;
         int around = watchNext.getHeight() - watchNext.posterHeight();
         int want = (int) Math.max(WatchNextRow.MIN_POSTER_DP * density,
                 Math.min(WatchNextRow.MAX_POSTER_DP * density, bottom - top - around));
@@ -2264,12 +2264,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     /**
-     * The grid scrolled: Continue watching and the hero's text go up with it, as one page, and the backdrop drifts
-     * up at a quarter of the speed and dims with the distance (to RECS_DIM_MIN), instead of the rows vanishing and
-     * the screen cutting to black.
+     * The grid scrolled: Continue watching and the hero's text go up with it, as one page, and the backdrop all but
+     * stays put and dims with the distance, nearly black (RECS_DIM_MIN) a couple of rows into the apps, instead of
+     * the rows vanishing and the screen cutting to black at once.
      */
     private void followGridScroll() {
-        float off = grid.computeVerticalScrollOffset();
+        float off = gridScroll();
         // The grid's wrapper clips the tiles at the top of the grid area, under the header; these views are not in
         // it, so they get the same line, or they would scroll over the clock and the top buttons.
         int clipLine = topInRoot((View) grid.getParent());
@@ -2282,8 +2282,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         recsMore.setTranslationY(-off);
         clipAbove(recsInfo, clipLine);
         clipAbove(recsMore, clipLine);
-        recsBackdrop.setTranslationY(-off * 0.25f);
-        recsDim = Math.max(RECS_DIM_MIN, 1f - off / Math.max(1f, root.getHeight() * 0.8f));
+        recsBackdrop.setTranslationY(-off * 0.06f);
+        recsDim = Math.max(RECS_DIM_MIN, 1f - off / Math.max(1f, root.getHeight() * 0.55f));
         if (recsShown) recsBackdrop.setAlpha(recsDim);
     }
 
@@ -2325,7 +2325,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         recsExpandShift = shift;
         long ms = animations && !reducedMotion ? 260 : 0;
         if (watchNext != null) {
-            watchNext.animate().translationY(shift - grid.computeVerticalScrollOffset()).setDuration(ms).start();
+            watchNext.animate().translationY(shift - gridScroll()).setDuration(ms).start();
         }
         grid.animate().translationY(shift).setDuration(ms).start();
     }
@@ -2465,9 +2465,27 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
     }
 
-    /** Hides the part of a child of root that is drawn above y (root coordinates); nothing when it is all below. */
+    /**
+     * How far the grid has scrolled from the dock's place, in pixels, measured on the dock row itself:
+     * computeVerticalScrollOffset() is an estimate from average row heights, and with it Continue watching drifted
+     * into the dock. Past the dock (no longer laid out) it counts as a full screen.
+     */
+    private float gridScroll() {
+        View dock = grid.getLayoutManager() == null ? null : grid.getLayoutManager().findViewByPosition(0);
+        if (dock == null) return grid.getHeight();
+        // DockDecoration's 6dp above the row: parked, the dock's decorated top sits on the grid's top padding.
+        return Math.max(0f, grid.getPaddingTop() + 6 * density - dock.getTop());
+    }
+
+    /**
+     * Hides the part of a child of root that is drawn above y (root coordinates), and fades the view out over its
+     * last 80dp before it is gone, so no sliver of cut-off text is left under the header.
+     */
     private void clipAbove(View v, int y) {
-        int cut = Math.round(y - (v.getTop() + v.getTranslationY()));
+        float top = v.getTop() + v.getTranslationY();
+        float leftBelow = top + v.getHeight() - y;
+        v.setAlpha(Math.max(0f, Math.min(1f, leftBelow / (80 * density))));
+        int cut = Math.round(y - top);
         if (cut <= 0) {
             if (v.getClipBounds() != null) v.setClipBounds(null);
             return;
