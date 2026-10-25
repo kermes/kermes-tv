@@ -55,5 +55,5 @@ STOCK_LAUNCHER=com.google.android.apps.tv.launcherx TV_HOST=<tv ip> launcher/bui
 
 ## Verified
 - Debloat applied cleanly
-- CleanYourTV launcher (`com.gathin.tvhome`) installed and set as default HOME
+- CleanYourTV launcher (`com.kermes.tvhome`) installed and set as default HOME
 - Stock `com.google.android.apps.tv.launcherx` disabled

@@ -15,7 +15,7 @@ Nothing broke between batches.
 - Home: `com.google.android.tvlauncher` before, as on the first unit. The only other HOME claimant was
   `com.android.tv.settings/.system.FallbackHome`; no setupwraith claim.
 - `launcher/build-and-install.ps1` worked first time: `set-home-activity` with the component, the stock
-  launcher disabled, `mResumedActivity` on `com.gathin.tvhome/.MainActivity`.
+  launcher disabled, `mResumedActivity` on `com.kermes.tvhome/.MainActivity`.
 - After a reboot the same 25 packages were disabled: nothing is re-enabled at boot. Home and Wi-Fi came
   back by themselves. `MemAvailable` was 1.08 GB before (box running for a while) and 1.23 GB right after
   the reboot.
@@ -37,7 +37,7 @@ Nothing broke between batches.
   which does nothing with it (the first unit saw the same, also on the stock launcher). The launcher's
   `HomeKeyService` catches `KEYCODE_ALL_APPS`, so enabling it (`-HomeKeyService` on
   `launcher/build-and-install.ps1`) turns the Apps button into a second Home button. Checked with the
-  real remote from inside VLC: the press started `com.gathin.tvhome/.MainActivity`.
+  real remote from inside VLC: the press started `com.kermes.tvhome/.MainActivity`.
 - The other buttons, checked with the real remote and `getevent -lt`: Home (`KEY_HOMEPAGE`), Back,
   voice (`KEY_VOICECOMMAND`, Assistant kept) and Netflix (`KEY_VIDEO`, scancode 393 is `NETFLIX` in
   the same `.kl`) all work with the stock launcher disabled.
@@ -78,11 +78,11 @@ What differed from the other units:
   `com.google.uid.shared:10004`, so the setup wizard stayed enabled, as on the second unit.
 - **Apps button.** Turned into a second Home button without the script switch: with
   `enabled_accessibility_services` unset (`null`), `settings put secure enabled_accessibility_services
-  com.gathin.tvhome/.HomeKeyService` and `settings put secure accessibility_enabled 1` (the owner confirmed the
+  com.kermes.tvhome/.HomeKeyService` and `settings put secure accessibility_enabled 1` (the owner confirmed the
   button opens Home). `theme.ps1` keeps the service across its Home restart. The `AUTO_START` appop line in
   `build-and-install.ps1` prints `Unknown operation string` here; harmless.
 - **Screensaver.** `screensaver_components` was `com.google.android.backdrop/...Backdrop`. Switched to
-  `com.gathin.tvhome/.ClockDream` first, then disabled Backdrop. `service call dreams 1` is refused to the shell
+  `com.kermes.tvhome/.ClockDream` first, then disabled Backdrop. `service call dreams 1` is refused to the shell
   (`WRITE_DREAM_STATE`); `am start -n com.android.systemui/.Somnambulator` starts the chosen screensaver
   instead, and `dumpsys dreams` showed `mCurrentDreamName=...ClockDream`.
 - **Private DNS** was unset (`null`/`null`). `private_dns_specifier dns.adguard-dns.com` and

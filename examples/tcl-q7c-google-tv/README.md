@@ -151,7 +151,7 @@ creator was `com.android.tv.settings`, not `android.uid.system` as on the
 Order used, as in the Q7C README: setupwraith first, while launcherx still owned Home, then
 `STOCK_LAUNCHER=com.google.android.apps.tv.launcherx INPUT_KEY_SERVICE=1 HOME_KEY_SERVICE=1
 launcher/build-and-install.sh`, which started the new launcher, disabled launcherx and reported
-`Home now resolves to com.gathin.tvhome/.MainActivity`. `mFocusedApp` confirmed it.
+`Home now resolves to com.kermes.tvhome/.MainActivity`. `mFocusedApp` confirmed it.
 
 ### The list as applied
 
@@ -261,7 +261,7 @@ Pushed with `tools/theme.sh` (`greeting_name` left out here):
 ### Reboot and closing ADB
 
 After one reboot, `pm list packages -d` returned the same 33 packages as before it: the 29 above, launcherx, and
-the three disabled before the session. Nothing came back. HOME still resolved to `com.gathin.tvhome/.MainActivity`,
+the three disabled before the session. Nothing came back. HOME still resolved to `com.kermes.tvhome/.MainActivity`,
 and `enabled_accessibility_services` still listed `InputKeyService` and `HomeKeyService`.
 
 To close: `tools/tv.py 'settings put global adb_wifi_enabled 0'`, then `'settings put global adb_enabled 0'`.
@@ -317,7 +317,7 @@ Instead of disabling setupwraith, both it and launcherx stayed enabled and the l
   `app_keys` `190:com.google.android.youtube.tv` and `4062:com.netflix.ninja`, `live_tv_package` `com.tcl.tv`.
 - `STOCK_LAUNCHER=none launcher/build-and-install.sh` installs it and leaves launcherx alone. Its Home check then
   reports launcherx, which is expected here; `HomeKeyService` was enabled afterwards the same way the script does.
-- Home from inside YouTube landed on `com.gathin.tvhome/.MainActivity` (`mFocusedApp`), and after a reboot the TV
+- Home from inside YouTube landed on `com.kermes.tvhome/.MainActivity` (`mFocusedApp`), and after a reboot the TV
   started straight into it. Launcherx flashes for a moment before the redirect.
 - The owner pressed Home, Settings, YouTube, Netflix and Input on the real remote: all worked. Holding volume up
   kept ramping with `HomeKeyService` bound and `key_filter` true, so the G09 repeat loss did not show on this set.
@@ -325,9 +325,9 @@ Instead of disabling setupwraith, both it and launcherx stayed enabled and the l
 ### TclAppBoot after a reboot
 
 After the first reboot `HomeKeyService` was enabled but unbound, `accessibility_enabled` read `0`, and logcat had
-`[TclAppBoot]:forbid bind service ComponentInfo{com.gathin.tvhome/com.gathin.tvhome.HomeKeyService}`.
-`appops get com.gathin.tvhome` showed `AUTO_START: ignore`: the install script's `cmd appops set ... AUTO_START
-allow` had not reached the disk. `appops set com.gathin.tvhome AUTO_START allow; appops write-settings`, then
+`[TclAppBoot]:forbid bind service ComponentInfo{com.kermes.tvhome/com.kermes.tvhome.HomeKeyService}`.
+`appops get com.kermes.tvhome` showed `AUTO_START: ignore`: the install script's `cmd appops set ... AUTO_START
+allow` had not reached the disk. `appops set com.kermes.tvhome AUTO_START allow; appops write-settings`, then
 clearing and rewriting the enabled list, bound the helper, and it bound on its own after the next reboot. The Sleep
 Timer add-on needed the same op (`AUTO_START` here, not `APP_AUTO_START`).
 
@@ -409,9 +409,9 @@ repeat together. The two settings for this mode were:
 
 - Leave `com.google.android.apps.tv.launcherx` enabled, unlike the standard install above. Google TV's native
   receiver handles the app buttons; `app_keys` in a key-filtering helper is not what restores them here.
-- Enable only `com.gathin.tvhome/.HomeKeyService`, with `InputKeyService` off. The Home helper observes window
+- Enable only `com.kermes.tvhome/.HomeKeyService`, with `InputKeyService` off. The Home helper observes window
   changes without filtering keys. Android still resolves Google TV as Home; the helper opens Clean Your TV.
-- Allow `AUTO_START` for `com.gathin.tvhome` and persist it with `appops write-settings`, as in
+- Allow `AUTO_START` for `com.kermes.tvhome` and persist it with `appops write-settings`, as in
   [TclAppBoot after a reboot](#tclappboot-after-a-reboot).
 - On this unit setupwraith stayed disabled after the owner forgot and rejoined Wi-Fi in Settings. The saved
   network then belonged to `com.android.tv.settings`; this differs from the third unit, which kept the wizard.
@@ -421,7 +421,7 @@ repeat together. The two settings for this mode were:
 The owner pressed Home, Netflix, Prime Video and YouTube on the physical remote: Home returned to Clean Your TV,
 the three apps opened, and held volume changed continuously.
 
-After a reboot, before injecting navigation keys, the focused app was `com.gathin.tvhome/.MainActivity`.
+After a reboot, before injecting navigation keys, the focused app was `com.kermes.tvhome/.MainActivity`.
 `dumpsys accessibility` showed only `HomeKeyService` bound, with `TYPE_WINDOW_STATE_CHANGED`, and no
 `KeyboardInterceptor`. The helper also remained bound after a later `tools/theme.sh` push.
 

@@ -6,7 +6,7 @@ Checked on a Philips 50PUS8505, TP Vision TPM191E (`PH9M_EA_5599`), Android TV 1
 
 - Disabled an owner-selected subset of 13 packages from the existing list: Philips analytics, usage logging, demo and promotion/store packages; the Sticker and Fitness Buddy preloads; and Google feedback/setup-only packages. Nothing was uninstalled.
 - After one reboot, all 13 selected packages remained disabled.
-- Installed the repository launcher, then disabled the stock launcher. Home resolved to `com.gathin.tvhome/.MainActivity` after installation and was focused during the navigation checks.
+- Installed the repository launcher, then disabled the stock launcher. Home resolved to `com.kermes.tvhome/.MainActivity` after installation and was focused during the navigation checks.
 - The physical remote's Sources and Settings buttons continued to open Philips' internal menus. The launcher's Inputs menu reported HDMI and YPbPr, with Live TV configured as `org.droidtv.playtv`; no separate AV input was reported.
 
 This is a single-session report, not a several-day debloat test. The full `debloat.txt` was not applied to this model. Streaming-app playback, broadcast/HDMI playback, USB-drive playback, app-shortcut remapping and long-press volume repeat were not validated here. Keep the existing list's package choices commented out unless they match your own use.
@@ -18,7 +18,7 @@ lead unit above (`STT2.230526.001`). Details and package names are in `debloat.t
 note; this section covers the launcher side.
 
 - Installed the repository launcher, then disabled the stock launcher, same order as the 50PUS8505
-  unit. Home resolved to `com.gathin.tvhome/.MainActivity` and stayed focused there.
+  unit. Home resolved to `com.kermes.tvhome/.MainActivity` and stayed focused there.
 - The Sources drawer (Inputs pill) listed USB, Network, a connected recording drive, a Switch on
   HDMI 1, an Xbox on HDMI 2, HDMI 3, HDMI 4 and YPbPr, each correctly named from HDMI-CEC where a
   device reported one. `org.droidtv.eum` was disabled briefly, then re-enabled on reading the
