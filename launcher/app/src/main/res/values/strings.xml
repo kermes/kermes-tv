@@ -113,6 +113,11 @@
     <string name="recs_season">Season %1$d</string>
     <string name="my_services">My services</string>
     <string name="my_services_hint">Recommendations come only from these services.</string>
+    <string name="recs_watch_on">Watch on %1$s</string>
+    <string name="recs_available_on">Available on %1$s</string>
+    <string name="recs_this_week">This week</string>
+    <string name="recs_this_month">This month</string>
+    <string name="recs_not_interested">Not interested</string>
     <!-- TMDB's required notice (developer.themoviedb.org/docs/faq), with the other data source. -->
     <string name="recs_credit" translatable="false">Recommendations use TMDB and OMDb data. This product uses the TMDB API but is not endorsed or certified by TMDB.</string>
     <!-- Under a Continue watching card: the app, then the episode. -->

@@ -1,6 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- Over the recommendation's backdrop: dark on the left, where the title and scores sit, and fading into Home's
-     black at the bottom, so the backdrop has no hard edge above Continue watching. -->
+<!-- Over the recommendation's backdrop: dark on the left, where the title and scores sit, and darker towards the
+     bottom, where Continue watching and the dock sit on it. -->
 <layer-list xmlns:android="http://schemas.android.com/apk/res/android">
     <item>
         <shape android:shape="rectangle">
@@ -10,8 +10,8 @@
     </item>
     <item>
         <shape android:shape="rectangle">
-            <gradient android:angle="90" android:startColor="#FF000000" android:centerColor="#66000000"
-                android:centerY="0.35" android:endColor="#33000000" />
+            <gradient android:angle="90" android:startColor="#F5000000" android:centerColor="#B3000000"
+                android:centerY="0.45" android:endColor="#1A000000" />
         </shape>
     </item>
 </layer-list>

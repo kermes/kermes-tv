@@ -43,17 +43,34 @@ import java.util.function.Consumer;
  * The API keys come from work/recs.properties at build time (BuildConfig) and never enter git.
  *
  * The rules, tried on Spain's catalogue in October 2026:
- * - Film: released in the last year. With a critic score, Rotten Tomatoes 80% or Metacritic 70, and an audience
+ * - Newest first, film and series in turn: a film by the day it reached streaming (its digital release in
+ *   recs_region, else elsewhere, else its release), a series by its new season or premiere. The owner's list keeps
+ *   the last six months of those.
+ * - Audience scores: IMDb when it has enough votes; TMDB only when IMDb has none, with a higher bar, because TMDB's
+ *   averages run high for network procedurals (Tracker, Fire Country: TMDB 7.6+, IMDb 7.1-7.2).
+ * - Film: released in the last year and on streaming in the last six months. With a critic score, Rotten Tomatoes 80% or Metacritic 70, and an audience
  *   score of IMDb 6.8 (5,000 votes) or TMDB 7.0 (300 votes). Without one, the audience bar rises to 7.5.
- * - Series: new in the last year, or a new season (5th at most) in the last 120 days; kids, news, reality, soap
+ * - Series: new in the last six months, or a new season (5th at most) in the last 120 days; kids, news, reality, soap
  *   and talk shows left out. OMDb has no series critic score, so IMDb 7.6 (3,000 votes) or TMDB 7.6 (100 votes).
  *   The season cap is what keeps season 26 of a procedural out: their audience scores are as high as anything.
+ * - Worth a try (on any service streaming in recs_region that the owner does not have: Apple TV+, Filmin, Netflix...):
+ *   at most two, and only exceptional ones: a film with Rotten Tomatoes 93%, Metacritic 80 and IMDb 7.5 (20,000
+ *   votes); a series with IMDb 8.4 (50,000 votes), up to its 8th season. The hero says where it streams; OK opens that app when it is
+ *   installed, and does nothing otherwise.
+ * - Titles the owner marked "Not interested" (hidden, by TMDB id) never come back.
  */
 final class Recs {
     static final String SERVICES_KEY = "recs_services";
+    static final String HIDDEN_KEY = "recs_hidden";
+    /** Item.service for a worth-a-try service that recs_services does not list: its TMDB name after this. */
+    private static final String NAME_PREFIX = "name:";
+    /** Worth-a-try titles from services the owner does not have, at most. */
+    private static final int MAX_OUTSIDE = 2;
     static final int MAX = 10;
     private static final long MAX_AGE_MS = 20L * 60 * 60 * 1000;
     private static final String CACHE = "recs.json";
+    /** Part of the cache's signature: a change to the rules or the item fields makes the next load fetch afresh. */
+    private static final int RULES = 3;
     private static final String TMDB = "https://api.themoviedb.org/3";
     private static final String IMAGES = "https://image.tmdb.org/t/p/w1280";
     private static final String TV_GENRES_LEFT_OUT = "10762|10763|10764|10766|10767";
@@ -79,16 +96,25 @@ final class Recs {
     }
 
     static final class Item {
+        /** "movie:123" or "tv:456", TMDB's id: what "Not interested" remembers. */
+        final String id;
         final boolean series;
+        /** From a service the owner does not have: a worth-a-try pick. */
+        final boolean outside;
         final String title, year, overview, backdrop, service;
         /** "Nueva temporada" and the like, or null. */
         final String note;
+        /** When it came out where it counts (yyyy-MM-dd): streaming for a film, the new season or premiere for a series. */
+        final String date;
         final int rottenTomatoes, metacritic;
         final double imdb;
 
-        Item(boolean series, String title, String year, String overview, String backdrop, String service, String note,
-             int rottenTomatoes, int metacritic, double imdb) {
+        Item(String id, boolean series, boolean outside, String title, String year, String overview, String backdrop,
+             String service, String note, String date, int rottenTomatoes, int metacritic, double imdb) {
+            this.date = date;
+            this.id = id;
             this.series = series;
+            this.outside = outside;
             this.title = title;
             this.year = year;
             this.overview = overview;
@@ -101,14 +127,15 @@ final class Recs {
         }
 
         JSONObject toJson() throws JSONException {
-            return new JSONObject().put("series", series).put("title", title).put("year", year)
-                    .put("overview", overview).put("backdrop", backdrop).put("service", service).put("note", note)
+            return new JSONObject().put("id", id).put("series", series).put("outside", outside).put("title", title).put("year", year)
+                    .put("overview", overview).put("backdrop", backdrop).put("service", service).put("note", note).put("date", date)
                     .put("rt", rottenTomatoes).put("mc", metacritic).put("imdb", imdb);
         }
 
         static Item fromJson(JSONObject o) {
-            return new Item(o.optBoolean("series"), o.optString("title"), o.optString("year"), o.optString("overview"),
-                    o.optString("backdrop"), o.optString("service"), o.isNull("note") ? null : o.optString("note", null),
+            return new Item(o.optString("id"), o.optBoolean("series"), o.optBoolean("outside"), o.optString("title"),
+                    o.optString("year"), o.optString("overview"), o.optString("backdrop"), o.optString("service"),
+                    o.isNull("note") ? null : o.optString("note", null), o.optString("date"),
                     o.optInt("rt", -1), o.optInt("mc", -1), o.optDouble("imdb", -1));
         }
     }
@@ -142,18 +169,55 @@ final class Recs {
                 .putStringSet(SERVICES_KEY, new HashSet<>(keys)).apply();
     }
 
+    static Set<String> hidden(Context context) {
+        return new HashSet<>(context.getSharedPreferences(Config.SETTINGS_NAME, Context.MODE_PRIVATE)
+                .getStringSet(HIDDEN_KEY, Collections.emptySet()));
+    }
+
+    /**
+     * "Not interested": never recommend this title again. The cached list is marked stale, so the next load fetches
+     * a replacement in the background.
+     */
+    static void hide(Context context, Item item) {
+        Set<String> hidden = hidden(context);
+        hidden.add(item.id);
+        context.getSharedPreferences(Config.SETTINGS_NAME, Context.MODE_PRIVATE).edit()
+                .putStringSet(HIDDEN_KEY, hidden).apply();
+        Context app = context.getApplicationContext();
+        LOADER.execute(() -> {
+            JSONObject cache = readCache(app);
+            if (cache == null) return;
+            try {
+                cache.put("fetched", 0L);
+                write(app, cache);
+            } catch (IOException | JSONException ignored) {
+                // the hidden set alone still keeps the title out of the next fetch
+            }
+        });
+    }
+
     static Service service(Context context, String key) {
         for (Service s : services(context)) if (s.key.equals(key)) return s;
         return null;
     }
 
-    /** The service's app, at its TV start screen. TMDB gives no link into the app itself. */
+    /**
+     * The service's app, at its TV start screen (TMDB gives no link into the app itself), or null when no installed
+     * app is known for it: a worth-a-try title on a service with no app here only says where it streams.
+     */
     static Intent intentFor(Context context, Item item) {
         Service s = service(context, item.service);
         if (s == null) return null;
         PackageManager pm = context.getPackageManager();
         Intent launch = pm.getLeanbackLaunchIntentForPackage(s.pkg);
         return launch != null ? launch : pm.getLaunchIntentForPackage(s.pkg);
+    }
+
+    /** The service's name: from recs_services, or as TMDB gave it for one that is not listed there ("name:Filmin"). */
+    static String label(Context context, Item item) {
+        Service s = service(context, item.service);
+        if (s != null) return s.label;
+        return item.service.startsWith(NAME_PREFIX) ? item.service.substring(NAME_PREFIX.length()) : item.service;
     }
 
     /**
@@ -164,16 +228,18 @@ final class Recs {
         Context app = context.getApplicationContext();
         String region = app.getString(R.string.recs_region);
         Set<String> chosen = chosen(app);
-        String signature = region + ":" + new TreeSet<>(chosen);
+        String signature = RULES + ":" + region + ":" + new TreeSet<>(chosen);
         LOADER.execute(() -> {
             JSONObject cache = readCache(app);
-            List<Item> cached = items(cache);
+            Set<String> hidden = hidden(app);
+            List<Item> cached = new ArrayList<>();
+            for (Item item : items(cache)) if (!hidden.contains(item.id)) cached.add(item);
             boolean sameServices = cache != null && signature.equals(cache.optString("signature"));
             if (sameServices && !cached.isEmpty()) MAIN.post(() -> done.accept(cached));
             boolean fresh = sameServices && System.currentTimeMillis() - cache.optLong("fetched") < MAX_AGE_MS;
             if (fresh || !configured()) return;
             try {
-                List<Item> fetched = fetch(app, region, chosen);
+                List<Item> fetched = fetch(app, region, chosen, hidden);
                 writeCache(app, signature, fetched);
                 MAIN.post(() -> done.accept(fetched));
             } catch (IOException | JSONException | RuntimeException e) {
@@ -182,31 +248,27 @@ final class Recs {
         });
     }
 
-    private static List<Item> fetch(Context context, String region, Set<String> chosen) throws IOException, JSONException {
-        List<Service> mine = new ArrayList<>();
-        for (Service s : services(context)) if (chosen.contains(s.key)) mine.add(s);
+    private static List<Item> fetch(Context context, String region, Set<String> chosen, Set<String> hidden)
+            throws IOException, JSONException {
+        List<Service> mine = new ArrayList<>(), others = new ArrayList<>();
+        for (Service s : services(context)) (chosen.contains(s.key) ? mine : others).add(s);
         if (mine.isEmpty()) return Collections.emptyList();
-        Set<Integer> providerIds = new LinkedHashSet<>();
-        for (Service s : mine) providerIds.addAll(s.providers);
-        StringBuilder ids = new StringBuilder();
-        for (int id : providerIds) ids.append(ids.length() == 0 ? "" : "|").append(id);
         String language = Locale.getDefault().toLanguageTag();
         LocalDate today = LocalDate.now();
-        String base = "watch_region=" + region + "&with_watch_providers=" + enc(ids.toString())
-                + "&with_watch_monetization_types=" + enc("flatrate|free|ads") + "&language=" + enc(language)
-                + "&sort_by=popularity.desc";
+        String base = discoverBase(region, mine, language);
 
         // One title that fails (a timeout, odd data) is skipped; only a fetch where every title failed is an error,
         // so a dead network never replaces a good cached list with an empty one.
         int tried = 0, failed = 0;
         List<Item> films = new ArrayList<>();
-        for (int page = 1; page <= 2 && films.size() < MAX; page++) {
+        for (int page = 1; page <= 2; page++) {
             JSONArray results = tmdb("/discover/movie?" + base + "&page=" + page + "&vote_count.gte=50"
                     + "&primary_release_date.gte=" + today.minusDays(365)).optJSONArray("results");
             for (int i = 0; results != null && i < results.length(); i++) {
+                if (hidden.contains("movie:" + results.getJSONObject(i).optInt("id"))) continue;
                 tried++;
                 try {
-                    Item item = film(results.getJSONObject(i), region, language, mine);
+                    Item item = film(results.getJSONObject(i), region, language, mine, null);
                     if (item != null) films.add(item);
                 } catch (IOException | JSONException e) {
                     failed++;
@@ -214,14 +276,15 @@ final class Recs {
             }
         }
         List<Item> series = new ArrayList<>();
-        for (int page = 1; page <= 3 && series.size() < MAX; page++) {
+        for (int page = 1; page <= 3; page++) {
             JSONArray results = tmdb("/discover/tv?" + base + "&page=" + page + "&vote_count.gte=20"
                     + "&without_genres=" + enc(TV_GENRES_LEFT_OUT) + "&air_date.gte=" + today.minusDays(120))
                     .optJSONArray("results");
             for (int i = 0; results != null && i < results.length(); i++) {
+                if (hidden.contains("tv:" + results.getJSONObject(i).optInt("id"))) continue;
                 tried++;
                 try {
-                    Item item = series(context, results.getJSONObject(i), region, language, mine, today);
+                    Item item = series(context, results.getJSONObject(i), region, language, mine, today, null);
                     if (item != null) series.add(item);
                 } catch (IOException | JSONException e) {
                     failed++;
@@ -229,20 +292,79 @@ final class Recs {
             }
         }
         if (tried > 0 && failed == tried) throw new IOException("every title failed");
-        // Film, series, film...: TMDB's popularity order within each.
+        List<Item> outside = worthATry(context, region, mine, others, language, today, hidden);
+        // Newest first (what just came out is what the owner may have been waiting for), film and series in turn:
+        // new seasons air every week, and by date alone they would push every film out. Worth-a-try picks go third
+        // and seventh.
+        String since = today.minusDays(183).toString();
+        for (List<Item> kind : Arrays.asList(films, series)) {
+            kind.removeIf(item -> item.date.compareTo(since) < 0);
+            kind.sort((a, b) -> b.date.compareTo(a.date));
+        }
         List<Item> out = new ArrayList<>();
-        for (int i = 0; out.size() < MAX && (i < films.size() || i < series.size()); i++) {
+        int room = MAX - outside.size();
+        for (int i = 0; out.size() < room && (i < films.size() || i < series.size()); i++) {
             if (i < films.size()) out.add(films.get(i));
-            if (i < series.size() && out.size() < MAX) out.add(series.get(i));
+            if (i < series.size() && out.size() < room) out.add(series.get(i));
+        }
+        for (int i = 0; i < outside.size(); i++) out.add(Math.min(out.size(), 2 + 4 * i), outside.get(i));
+        return out;
+    }
+
+    /**
+     * The exceptional few on services the owner does not have: one page of each kind from everything streaming in
+     * the region, the higher bar, and nothing that is also on one of the owner's services.
+     */
+    private static List<Item> worthATry(Context context, String region, List<Service> mine, List<Service> known,
+                                        String language, LocalDate today, Set<String> hidden) {
+        List<Item> out = new ArrayList<>();
+        String base = "watch_region=" + region + "&with_watch_monetization_types=flatrate&language=" + enc(language)
+                + "&sort_by=popularity.desc";
+        try {
+            JSONArray films = tmdb("/discover/movie?" + base + "&vote_count.gte=500"
+                    + "&primary_release_date.gte=" + today.minusDays(365)).optJSONArray("results");
+            for (int i = 0; films != null && i < films.length() && out.size() < MAX_OUTSIDE; i++) {
+                if (hidden.contains("movie:" + films.getJSONObject(i).optInt("id"))) continue;
+                try {
+                    Item item = film(films.getJSONObject(i), region, language, mine, known);
+                    if (item != null) out.add(item);
+                } catch (IOException | JSONException ignored) {
+                    // skip this one
+                }
+            }
+            JSONArray shows = tmdb("/discover/tv?" + base + "&vote_count.gte=100&without_genres=" + enc(TV_GENRES_LEFT_OUT)
+                    + "&air_date.gte=" + today.minusDays(120)).optJSONArray("results");
+            for (int i = 0; shows != null && i < shows.length() && out.size() < MAX_OUTSIDE; i++) {
+                if (hidden.contains("tv:" + shows.getJSONObject(i).optInt("id"))) continue;
+                try {
+                    Item item = series(context, shows.getJSONObject(i), region, language, mine, today, known);
+                    if (item != null) out.add(item);
+                } catch (IOException | JSONException ignored) {
+                    // skip this one
+                }
+            }
+        } catch (IOException | JSONException e) {
+            // no worth-a-try picks this time; the owner's own list still stands
         }
         return out;
     }
 
-    private static Item film(JSONObject m, String region, String language, List<Service> mine)
+    private static String discoverBase(String region, List<Service> services, String language) {
+        Set<Integer> providerIds = new LinkedHashSet<>();
+        for (Service s : services) providerIds.addAll(s.providers);
+        StringBuilder ids = new StringBuilder();
+        for (int id : providerIds) ids.append(ids.length() == 0 ? "" : "|").append(id);
+        return "watch_region=" + region + "&with_watch_providers=" + enc(ids.toString())
+                + "&with_watch_monetization_types=" + enc("flatrate|free|ads") + "&language=" + enc(language)
+                + "&sort_by=popularity.desc";
+    }
+
+    /** @param outside null for the owner's own list; for worth-a-try picks, the other services recs_services knows. */
+    private static Item film(JSONObject m, String region, String language, List<Service> mine, List<Service> outside)
             throws IOException, JSONException {
         JSONObject d = tmdb("/movie/" + m.getInt("id") + "?language=" + enc(language)
-                + "&append_to_response=" + enc("external_ids,watch/providers"));
-        String service = serviceFor(d, region, mine);
+                + "&append_to_response=" + enc("external_ids,watch/providers,release_dates"));
+        String service = outside == null ? serviceFor(d, region, mine) : serviceOutside(d, region, mine, outside);
         String backdrop = d.optString("backdrop_path", "");
         if (service == null || backdrop.isEmpty() || "null".equals(backdrop)) return null;
         JSONObject o = omdb(d.optJSONObject("external_ids"));
@@ -252,20 +374,23 @@ final class Recs {
         double tmdb = m.optDouble("vote_average");
         int tmdbVotes = m.optInt("vote_count");
         boolean critics = rt >= 80 || mc >= 70;
-        boolean audience = imdb >= 6.8 && imdbVotes >= 5000 || tmdb >= 7.0 && tmdbVotes >= 300;
-        boolean strongAudience = imdb >= 7.5 && imdbVotes >= 5000 || tmdb >= 7.6 && tmdbVotes >= 300;
+        boolean byImdb = imdbVotes >= 5000;
+        boolean audience = byImdb ? imdb >= 6.8 : tmdb >= 7.0 && tmdbVotes >= 300;
+        boolean strongAudience = byImdb ? imdb >= 7.5 : tmdb >= 7.6 && tmdbVotes >= 500;
         boolean pass = rt >= 0 || mc >= 0 ? critics && audience : strongAudience;
+        if (outside != null) pass = rt >= 93 && mc >= 80 && imdb >= 7.5 && imdbVotes >= 20000;
         if (!pass) return null;
-        return new Item(false, d.optString("title"), year(d.optString("release_date")), d.optString("overview"),
-                IMAGES + backdrop, service, null, rt, mc, imdb);
+        return new Item("movie:" + m.getInt("id"), false, outside != null, d.optString("title"),
+                year(d.optString("release_date")), d.optString("overview"), IMAGES + backdrop, service, null,
+                streamingDate(d, region), rt, mc, imdb);
     }
 
     private static Item series(Context context, JSONObject t, String region, String language, List<Service> mine,
-                               LocalDate today)
+                               LocalDate today, List<Service> outside)
             throws IOException, JSONException {
         JSONObject d = tmdb("/tv/" + t.getInt("id") + "?language=" + enc(language)
                 + "&append_to_response=" + enc("external_ids,watch/providers"));
-        String service = serviceFor(d, region, mine);
+        String service = outside == null ? serviceFor(d, region, mine) : serviceOutside(d, region, mine, outside);
         String backdrop = d.optString("backdrop_path", "");
         if (service == null || backdrop.isEmpty() || "null".equals(backdrop)) return null;
         // The newest season that has started, and whether the show itself is new.
@@ -281,19 +406,67 @@ final class Recs {
                 latestDate = air;
             }
         }
-        boolean newShow = d.optString("first_air_date", "").compareTo(today.minusDays(365).toString()) >= 0;
-        boolean newSeason = latest >= 2 && latest <= 5 && latestDate.compareTo(today.minusDays(120).toString()) >= 0;
+        boolean newShow = d.optString("first_air_date", "").compareTo(today.minusDays(183).toString()) >= 0;
+        int seasonCap = outside == null ? 5 : 8;
+        boolean newSeason = latest >= 2 && latest <= seasonCap && latestDate.compareTo(today.minusDays(120).toString()) >= 0;
         if (!newShow && !newSeason) return null;
         JSONObject o = omdb(d.optJSONObject("external_ids"));
         int rt = rating(o, "Rotten Tomatoes");
         double imdb = doubleOf(o.optString("imdbRating"));
         int imdbVotes = intOf(o.optString("imdbVotes").replace(",", ""));
-        boolean audience = imdb >= 7.6 && imdbVotes >= 3000
-                || t.optDouble("vote_average") >= 7.6 && t.optInt("vote_count") >= 100;
+        boolean audience = imdbVotes >= 3000 ? imdb >= 7.6
+                : t.optDouble("vote_average") >= 8.0 && t.optInt("vote_count") >= 300;
+        if (outside != null) audience = imdb >= 8.4 && imdbVotes >= 50000;
         if (!audience || rt >= 0 && rt < 80) return null;
         String note = newSeason ? context.getString(R.string.recs_season, latest) : context.getString(R.string.recs_new_series);
-        return new Item(true, d.optString("name"), year(d.optString("first_air_date")), d.optString("overview"),
-                IMAGES + backdrop, service, note, rt, -1, imdb);
+        return new Item("tv:" + t.getInt("id"), true, outside != null, d.optString("name"),
+                year(d.optString("first_air_date")), d.optString("overview"), IMAGES + backdrop, service, note,
+                newSeason ? latestDate : d.optString("first_air_date"), rt, -1, imdb);
+    }
+
+    /**
+     * Where a worth-a-try title streams by subscription in this region: null when one of the owner's services has it
+     * (it belongs in their own list), else a service recs_services knows (its app may be here), else TMDB's name.
+     */
+    private static String serviceOutside(JSONObject details, String region, List<Service> mine, List<Service> known) {
+        JSONObject wp = details.optJSONObject("watch/providers");
+        JSONObject here = wp == null ? null : wp.optJSONObject("results");
+        here = here == null ? null : here.optJSONObject(region);
+        JSONArray list = here == null ? null : here.optJSONArray("flatrate");
+        if (list == null || list.length() == 0) return null;
+        for (int i = 0; i < list.length(); i++) {
+            int id = list.optJSONObject(i).optInt("provider_id");
+            for (Service s : mine) if (s.providers.contains(id)) return null;
+        }
+        for (int i = 0; i < list.length(); i++) {
+            int id = list.optJSONObject(i).optInt("provider_id");
+            for (Service s : known) if (s.providers.contains(id)) return s.key;
+        }
+        return NAME_PREFIX + list.optJSONObject(0).optString("provider_name");
+    }
+
+    /**
+     * The day a film reached streaming: its digital release (TMDB release type 4) in this region, else the earliest
+     * one anywhere, else its release date. A film seen in cinemas in spring is "new" when it lands at home.
+     */
+    private static String streamingDate(JSONObject details, String region) {
+        JSONObject rd = details.optJSONObject("release_dates");
+        JSONArray countries = rd == null ? null : rd.optJSONArray("results");
+        String here = null, anywhere = null;
+        for (int i = 0; countries != null && i < countries.length(); i++) {
+            JSONObject c = countries.optJSONObject(i);
+            JSONArray dates = c == null ? null : c.optJSONArray("release_dates");
+            for (int j = 0; dates != null && j < dates.length(); j++) {
+                JSONObject r = dates.optJSONObject(j);
+                if (r == null || r.optInt("type") != 4 || r.optString("release_date").length() < 10) continue;
+                String day = r.optString("release_date").substring(0, 10);
+                if (region.equals(c.optString("iso_3166_1")) && (here == null || day.compareTo(here) < 0)) here = day;
+                if (anywhere == null || day.compareTo(anywhere) < 0) anywhere = day;
+            }
+        }
+        if (here != null) return here;
+        if (anywhere != null) return anywhere;
+        return details.optString("release_date", "");
     }
 
     /** The first of the owner's services that has the title in this region, by subscription, free or with ads. */
@@ -413,8 +586,11 @@ final class Recs {
     private static void writeCache(Context context, String signature, List<Item> items) throws IOException, JSONException {
         JSONArray list = new JSONArray();
         for (Item item : items) list.put(item.toJson());
-        JSONObject cache = new JSONObject().put("fetched", System.currentTimeMillis()).put("signature", signature)
-                .put("items", list);
+        write(context, new JSONObject().put("fetched", System.currentTimeMillis()).put("signature", signature)
+                .put("items", list));
+    }
+
+    private static void write(Context context, JSONObject cache) throws IOException {
         File tmp = new File(context.getFilesDir(), CACHE + ".tmp");
         try (FileOutputStream out = new FileOutputStream(tmp)) {
             out.write(cache.toString().getBytes(StandardCharsets.UTF_8));

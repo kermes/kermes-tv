@@ -105,6 +105,11 @@
     <string name="recs_season">עונה %1$d</string>
     <string name="my_services">השירותים שלי</string>
     <string name="my_services_hint">ההמלצות מגיעות רק מהשירותים האלה.</string>
+    <string name="recs_watch_on">צפייה ב־%1$s</string>
+    <string name="recs_available_on">זמין ב־%1$s</string>
+    <string name="recs_this_week">השבוע</string>
+    <string name="recs_this_month">החודש</string>
+    <string name="recs_not_interested">לא מעניין אותי</string>
     <string name="library_empty">לא נמצאו אפליקציות שניתן לפתוח</string>
     <string name="library_on_home">במסך הבית</string>
     <string name="library_add_home">הוספה למסך הבית</string>

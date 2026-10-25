@@ -3,6 +3,7 @@ package com.kermes.tvhome;
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.Dialog;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
@@ -153,19 +154,24 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** Recommendations hero (recs_hero): backdrop, the focusable text under the clock, and the synopsis under it. */
     private ImageView recsBackdrop;
     private View recsScrim, recsInfo, recsMore;
-    private TextView recsTitle, recsMeta, recsOverview;
+    private TextView recsTitle, recsMeta, recsOverview, recsPlay;
     private LinearLayout recsDots;
     private List<Recs.Item> recs = Collections.emptyList();
     private int recsIndex;
     private boolean recsOn, recsShown;
-    private static final long RECS_ROTATE_MS = 10_000;
+    /** The hero moves on by itself: every 10 s, every 15 s while it has focus (there is a synopsis to read), and
+     *  never sooner than that after Left or Right. */
+    private static final long RECS_ROTATE_MS = 10_000, RECS_ROTATE_FOCUSED_MS = 15_000;
+    /** With the hero on, the dock sits this close to the bottom edge (AppAdapter.BOTTOM_ROOM_DP otherwise), and
+     *  Continue watching keeps this poster height, so the backdrop gets the rest of the screen. */
+    private static final float RECS_BOTTOM_ROOM_DP = 6, RECS_ROW_POSTER_DP = 76;
     /** Backdrops are decoded this wide: soft at full screen, but they sit under a scrim, and ten fit in memory. */
     private static final int RECS_BACKDROP_PX = 960;
     private final Runnable recsRotate = new Runnable() {
         @Override
         public void run() {
-            if (recsShown && !recsInfo.hasFocus() && recs.size() > 1) showRec(recsIndex + 1);
-            handler.postDelayed(this, RECS_ROTATE_MS);
+            if (recsShown && recs.size() > 1) showRec(recsIndex + 1);
+            handler.postDelayed(this, recsInfo.hasFocus() ? RECS_ROTATE_FOCUSED_MS : RECS_ROTATE_MS);
         }
     };
     /** Cinematic top shelf (config.xml, cinematic_home): the focused dock app's artwork behind a larger shelf. */
@@ -631,7 +637,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             // Keep the hero below the header when the library is enabled on a short screen,
             // even when the theme requests an extra visible row below the dock.
             int shelfClearance = cfg.appLibrary ? hero.getMeasuredHeight() + (int) (40 * density) : 0;
-            int want = Math.max(shelfClearance, h - dockRow - gridRows - (int) (AppAdapter.BOTTOM_ROOM_DP * density));
+            float bottomRoom = recsOn ? RECS_BOTTOM_ROOM_DP : AppAdapter.BOTTOM_ROOM_DP;
+            int want = Math.max(shelfClearance, h - dockRow - gridRows - (int) (bottomRoom * density));
             // Where the rows cannot fit even at the smallest tile (3 rows with the title on), the title keeps its
             // room above the dock and the last rows run off the bottom instead of the title drawing over the clock.
             if (MainActivity.this.dockRow && cfg.dockTitle && rowsBelowDock > 0) want = Math.max(want, (int) (AppAdapter.TITLE_ROOM_DP * density));
@@ -783,6 +790,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             makeIconOnly((TextView) btnSettings);
         }
         if (cfg.iconOnlyInputs) makeIconOnly((TextView) btnInputs);
+        if (recsOn) compactHeader(btnSettings);
         btnSettings.setOnLongClickListener(v -> {
             showSettingsMenu();
             return true;
@@ -1739,8 +1747,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     private void showHero(int position, float dockTopInRoot) {
         lastDockTop = dockTopInRoot;
-        if (recsOn && !recs.isEmpty()) showRecs(dockTopInRoot);
         if (watchNext != null && watchNext.hasItems()) placeWatchNext(dockTopInRoot);
+        if (recsOn && !recs.isEmpty()) showRecs(dockTopInRoot);
         String label = adapter.labelAt(position);
         int color = adapter.ambientColorAt(position);
         float y = dockTopInRoot - 14 * density - 26 * density - hero.getHeight();
@@ -2109,12 +2117,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             return;
         }
         float top = Math.max(bottomInRoot(clockBlock), bottomInRoot(findViewById(R.id.topButtons))) + 20 * density;
-        // The hero's title and scores sit under the clock: the row starts under them.
-        if (recsShown) top = Math.max(top, bottomInRoot(recsInfo) + 14 * density);
-        float bottom = dockTop - 22 * density;
+        float bottom = dockTop - (recsOn ? 16 : 22) * density;
         int around = watchNext.getHeight() - watchNext.posterHeight();
         int want = (int) Math.max(WatchNextRow.MIN_POSTER_DP * density,
                 Math.min(WatchNextRow.MAX_POSTER_DP * density, bottom - top - around));
+        // The hero takes the space above: the row stays low, at the size it has under the hero.
+        if (recsOn) want = Math.round(RECS_ROW_POSTER_DP * density);
         if (Math.abs(want - watchNext.posterHeight()) > 2 * density) {
             watchNext.setPosterHeight(want);
             watchNext.post(() -> {
@@ -2130,8 +2138,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             lp.topMargin = topMargin;
             watchNext.setLayoutParams(lp);
         }
-        if (watchNextShown) return;
+        boolean wasShown = watchNextShown;
         watchNextShown = true;
+        if (recsShown) placeRecs(dockTop);
+        if (wasShown) return;
         watchNext.animate().cancel();
         watchNext.setVisibility(View.VISIBLE);
         if (animations && !reducedMotion) watchNext.animate().alpha(1f).setDuration(260).start();
@@ -2166,13 +2176,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         recsTitle = findViewById(R.id.recsTitle);
         recsMeta = findViewById(R.id.recsMeta);
         recsOverview = findViewById(R.id.recsOverview);
+        recsPlay = findViewById(R.id.recsPlay);
         recsDots = findViewById(R.id.recsDots);
         // Invisible, not gone, as Continue watching: laid out for placing, never focusable while hidden.
         for (View v : new View[]{recsBackdrop, recsScrim, recsInfo}) v.setVisibility(View.INVISIBLE);
-        recsInfo.setOnFocusChangeListener((v, focused) -> {
-            // Focused, the hero shows its synopsis over the top of Continue watching, which steps back.
-            recsMore.setVisibility(focused ? View.VISIBLE : View.INVISIBLE);
-            if (watchNextShown) watchNext.animate().alpha(focused ? 0.08f : 1f).setDuration(200).start();
+        recsInfo.setOnFocusChangeListener((v, focused) -> expandRecs(focused));
+        recsInfo.setOnLongClickListener(v -> {
+            showRecMenu();
+            return true;
         });
         recsInfo.setOnClickListener(v -> {
             if (recs.isEmpty()) return;
@@ -2186,6 +2197,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 case KeyEvent.KEYCODE_DPAD_RIGHT:
                     boolean forward = (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) != rtlAppGrid;
                     showRec(recsIndex + (forward ? 1 : -1));
+                    handler.removeCallbacks(recsRotate);
+                    handler.postDelayed(recsRotate, RECS_ROTATE_FOCUSED_MS);
                     v.playSoundEffect(forward ? SoundEffectConstants.NAVIGATION_RIGHT : SoundEffectConstants.NAVIGATION_LEFT);
                     return true;
                 case KeyEvent.KEYCODE_DPAD_UP:
@@ -2216,34 +2229,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             buildRecDots();
             showRec(keep);
             if (heroShown && lastDockTop >= 0f) recsInfo.post(() -> {
-                showRecs(lastDockTop);
                 if (watchNext != null && watchNext.hasItems()) placeWatchNext(lastDockTop);
+                showRecs(lastDockTop);
             });
         });
     }
 
-    /** Places the hero under the clock and its backdrop down to just above the dock, and fades them in. */
+    /** Places the hero and fades it in; the backdrop fills the screen behind Continue watching and the dock. */
     private void showRecs(float dockTop) {
-        FrameLayout.LayoutParams info = (FrameLayout.LayoutParams) recsInfo.getLayoutParams();
-        int infoTop = Math.round(bottomInRoot(clockBlock) + 14 * density);
-        if (info.topMargin != infoTop) {
-            info.topMargin = infoTop;
-            recsInfo.setLayoutParams(info);
-        }
-        FrameLayout.LayoutParams more = (FrameLayout.LayoutParams) recsMore.getLayoutParams();
-        int moreTop = infoTop + Math.max(recsInfo.getHeight(), Math.round(70 * density)) + Math.round(10 * density);
-        if (more.topMargin != moreTop) {
-            more.topMargin = moreTop;
-            recsMore.setLayoutParams(more);
-        }
-        int backdropHeight = Math.round(dockTop - 30 * density);
-        for (View v : new View[]{recsBackdrop, recsScrim}) {
-            ViewGroup.LayoutParams lp = v.getLayoutParams();
-            if (backdropHeight > 0 && lp.height != backdropHeight) {
-                lp.height = backdropHeight;
-                v.setLayoutParams(lp);
-            }
-        }
+        placeRecs(dockTop);
         if (recsShown) return;
         recsShown = true;
         for (View v : new View[]{recsBackdrop, recsScrim, recsInfo}) {
@@ -2252,6 +2246,79 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             if (animations && !reducedMotion) v.animate().alpha(1f).setDuration(300).start();
             else v.setAlpha(1f);
         }
+    }
+
+    /**
+     * The hero's title sits just above Continue watching (or the dock when that row is empty), as low as it goes, so
+     * the backdrop shows between it and the clock; the synopsis and the Watch pill go under it, shown on focus.
+     */
+    private void placeRecs(float dockTop) {
+        float anchor = dockTop - 40 * density;
+        if (watchNextShown) anchor = ((FrameLayout.LayoutParams) watchNext.getLayoutParams()).topMargin;
+        int infoTop = Math.round(Math.max(bottomInRoot(clockBlock) + 10 * density,
+                anchor - 22 * density - recsInfo.getHeight()));
+        FrameLayout.LayoutParams info = (FrameLayout.LayoutParams) recsInfo.getLayoutParams();
+        if (info.topMargin != infoTop) {
+            info.topMargin = infoTop;
+            recsInfo.setLayoutParams(info);
+        }
+        FrameLayout.LayoutParams more = (FrameLayout.LayoutParams) recsMore.getLayoutParams();
+        int moreTop = infoTop + recsInfo.getHeight() + Math.round(16 * density);
+        if (more.topMargin != moreTop) {
+            more.topMargin = moreTop;
+            recsMore.setLayoutParams(more);
+        }
+    }
+
+    /**
+     * Focused, the hero opens up: its synopsis and Watch pill show where Continue watching was, and that row and the
+     * dock slide down out of the way (drawn lower only: focus moves between them by the keys, not by position).
+     */
+    private void expandRecs(boolean open) {
+        recsMore.setVisibility(open ? View.VISIBLE : View.INVISIBLE);
+        float shift = 0f;
+        if (open) {
+            int moreBottom = ((FrameLayout.LayoutParams) recsMore.getLayoutParams()).topMargin + recsMore.getHeight();
+            float rowsTop = watchNextShown ? ((FrameLayout.LayoutParams) watchNext.getLayoutParams()).topMargin
+                    : lastDockTop - 10 * density;
+            shift = Math.max(0f, moreBottom + 28 * density - rowsTop);
+        }
+        long ms = animations && !reducedMotion ? 260 : 0;
+        if (watchNext != null) watchNext.animate().translationY(shift).setDuration(ms).start();
+        grid.animate().translationY(shift).setDuration(ms).start();
+    }
+
+    /** Hold OK on the hero: open it, or "Not interested", which drops it now and keeps it out of later lists. */
+    private void showRecMenu() {
+        if (recs.isEmpty()) return;
+        Recs.Item item = recs.get(recsIndex);
+        boolean openable = Recs.intentFor(this, item) != null;
+        String[] choices = openable
+                ? new String[]{getString(R.string.recs_watch_on, Recs.label(this, item)), getString(R.string.recs_not_interested)}
+                : new String[]{getString(R.string.recs_not_interested)};
+        new AlertDialog.Builder(this)
+                .setTitle(item.title)
+                .setItems(choices,
+                        (dialog, which) -> {
+                            if (openable && which == 0) {
+                                Intent intent = Recs.intentFor(this, item);
+                                if (intent != null) open(intent);
+                                return;
+                            }
+                            Recs.hide(this, item);
+                            List<Recs.Item> rest = new ArrayList<>(recs);
+                            rest.remove(item);
+                            recs = rest;
+                            if (recs.isEmpty()) {
+                                hideRecs();
+                            } else {
+                                buildRecDots();
+                                showRec(recsIndex);
+                            }
+                            // A replacement comes with the next fetch, which the hide just made due.
+                            loadRecs();
+                        })
+                .show();
     }
 
     private void hideRecs() {
@@ -2276,11 +2343,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (recs.isEmpty()) return;
         recsIndex = ((i % recs.size()) + recs.size()) % recs.size();
         Recs.Item item = recs.get(recsIndex);
-        Recs.Service service = Recs.service(this, item.service);
+        String label = Recs.label(this, item);
         recsTitle.setText(item.title);
-        recsMeta.setText(recMeta(item, service != null ? service.label : item.service));
+        recsMeta.setText(recMeta(item, label));
+        // OK opens the service's app when one is installed; a worth-a-try title elsewhere only says where it is,
+        // which is all that marks it out: the hero looks the same for every title.
+        recsPlay.setText(Recs.intentFor(this, item) != null ? "\u25B6  " + getString(R.string.recs_watch_on, label)
+                : getString(R.string.recs_available_on, label));
+        // A new title may change the hero's height (a badge, a long title): keep it sitting on the row.
+        if (recsShown && lastDockTop >= 0f) recsInfo.post(() -> placeRecs(lastDockTop));
         recsOverview.setText(item.overview);
-        recsOverview.setVisibility(item.overview.isEmpty() ? View.GONE : View.VISIBLE);
         for (int d = 0; d < recsDots.getChildCount(); d++) recsDots.getChildAt(d).setAlpha(d == recsIndex ? 1f : 0.35f);
         recsInfo.setContentDescription(getString(R.string.recs_label) + ": " + item.title);
         Bitmap cached = Posters.cached(item.backdrop, RECS_BACKDROP_PX);
@@ -2303,11 +2375,25 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         StringBuilder sb = new StringBuilder(service).append("  ·  ")
                 .append(getString(item.series ? R.string.recs_series : R.string.recs_film));
         if (item.note != null) sb.append("  ·  ").append(item.note);
-        if (!item.year.isEmpty()) sb.append("  ·  ").append(item.year);
+        String when = recWhen(item);
+        if (!when.isEmpty()) sb.append("  ·  ").append(when);
         if (item.rottenTomatoes >= 0) sb.append("      RT ").append(item.rottenTomatoes).append('%');
         if (item.metacritic >= 0) sb.append("      MC ").append(item.metacritic);
         if (item.imdb >= 0) sb.append("      IMDb ").append(String.format(java.util.Locale.ROOT, "%.1f", item.imdb));
         return sb.toString();
+    }
+
+    /** "This week" or "This month" for what just came out (streaming for a film, the season for a series), else its year. */
+    private String recWhen(Recs.Item item) {
+        try {
+            long days = java.time.temporal.ChronoUnit.DAYS.between(java.time.LocalDate.parse(item.date),
+                    java.time.LocalDate.now());
+            if (days >= 0 && days <= 7) return getString(R.string.recs_this_week);
+            if (days >= 0 && days <= 31) return getString(R.string.recs_this_month);
+            return String.valueOf(java.time.LocalDate.parse(item.date).getYear());   // this season's, not the show's
+        } catch (java.time.format.DateTimeParseException ignored) {
+            return item.year;   // no date (a list cached before dates)
+        }
     }
 
     private void crossfadeBackdrop(Bitmap bitmap) {
@@ -3022,6 +3108,30 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private boolean libraryFromTopBar;
 
     /** Turns a labelled top pill into the round TopButtonIcon shape: no text, the icon centred by even padding. */
+    /**
+     * With the hero on, the header gets out of its way: the top row sits higher, the clock and date are smaller, and
+     * the icon-only buttons (icon_only_buttons, icon_only_inputs) shrink from 42dp circles to 34dp ones.
+     */
+    private void compactHeader(View btnSettings) {
+        View header = (View) clockBlock.getParent();
+        View column = (View) header.getParent();
+        column.setPaddingRelative(column.getPaddingStart(), Math.round(12 * density), column.getPaddingEnd(),
+                column.getPaddingBottom());
+        ((TextView) findViewById(R.id.clock)).setTextSize(TypedValue.COMPLEX_UNIT_SP, 38);
+        ((TextView) findViewById(R.id.date)).setTextSize(TypedValue.COMPLEX_UNIT_SP, 12);
+        int size = Math.round(34 * density), pad = Math.round(6 * density);
+        List<View> pills = new ArrayList<>(Arrays.asList(btnInputs, btnWifi, btnSettings));
+        pills.addAll(topAppButtons);
+        for (View pill : pills) {
+            if (!(pill instanceof TextView) || ((TextView) pill).getText().length() > 0) continue;   // still labelled
+            ViewGroup.LayoutParams lp = pill.getLayoutParams();
+            lp.width = size;
+            lp.height = size;
+            pill.setLayoutParams(lp);
+            pill.setPaddingRelative(pad, 0, pad, 0);
+        }
+    }
+
     private void makeIconOnly(TextView pill) {
         pill.setContentDescription(pill.getText());
         pill.setText(null);

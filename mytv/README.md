@@ -64,21 +64,30 @@ name used to be. Up from the dock goes to the row, Up again to the top bar; OK o
 
 ## Recommendations hero
 
-`recs_hero` (fork-only: `Recs.java`, hero code in `MainActivity`) puts a recommended film or series over the top of
-Home: its backdrop behind the clock, then the title and a line with the service, kind, year and scores. It rotates
-every 10 s; Up from Continue watching focuses it, which shows the synopsis and a dot per title; Left/Right change
-the title, OK opens the service's app (at its start screen: no deep link into the title yet).
+`recs_hero` (fork-only: `Recs.java`, hero code in `MainActivity`) fills Home with a recommended film or series: its
+backdrop behind everything, the title and a line with the service, kind, recency and scores just above Continue
+watching. With it on, the dock sits at the bottom edge, the clock is smaller and the top buttons are 34dp icon
+circles (`icon_only_buttons`, `icon_only_inputs`).
 
-- **Source:** TMDB for what is new and where it streams in Spain (JustWatch data), OMDb for IMDb, Rotten Tomatoes
-  and Metacritic. Rotten Tomatoes itself has no affordable API. Fetched at most once every 20 h, cached on the TV.
-- **Rules** (in `Recs.java`'s header): films from the last year need critics (RT ≥ 80% or MC ≥ 70) and audience
-  (IMDb ≥ 6.8 or TMDB ≥ 7.0); series must be new or have a new season (5th at most) in the last 120 days, and
-  IMDb/TMDB ≥ 7.6 (OMDb has no series critic score). Kids, news, reality, soap and talk shows are left out.
-- **Services:** hold OK on Ajustes → Launcher settings → **Mis servicios** to tick them on and off. Mediaset
-  Infinity is not in TMDB's Spanish provider list, so it cannot be a source.
-- **Keys:** `work/recs.properties` (`tmdb_token=`, `omdb_key=`), read at build time into the APK; git ignores `work/`.
-  Without them the hero is off. TMDB's free tier asks for its credit line, shown under Mis servicios.
-- With the hero on, the dock's coloured glow is off, so the backdrop fades into plain black.
+- **Remote:** Up from Continue watching focuses the hero; Continue watching and the dock slide down for the
+  synopsis (always three lines tall, so nothing jumps), the "Ver en …" pill and a dot per title. Left/Right change
+  the title, OK opens the service's app (its start screen: no deep link into the title yet). Hold OK for
+  **No me interesa**, which drops the title for good and fetches a replacement.
+- **Rotation:** every 10 s, every 15 s while focused, and never sooner than 15 s after Left/Right.
+- **Fetching:** at most once every 20 h, when Home comes back; cached on the TV. A rules change (`RULES` in
+  `Recs.java`) forces a new fetch.
+- **What counts:** films that reached streaming (digital release in Spain, else elsewhere) in the last six months,
+  series new in the last six months or with a new season (5th at most) in the last four; newest first, film and
+  series in turn. "Esta semana" / "Este mes" mark the newest.
+- **Quality:** films need critics (RT ≥ 80% or MC ≥ 70) and audience (IMDb ≥ 6.8; TMDB ≥ 7.0 only when IMDb has
+  too few votes); series IMDb ≥ 7.6 (TMDB ≥ 8.0 as the fallback). TMDB's averages run high for procedurals.
+- **Worth a try:** up to two exceptional titles on any service you don't have (film: RT 93%, MC 80, IMDb 7.5;
+  series: IMDb 8.4 with 50,000 votes, up to season 8), in slots 3 and 7. If its app is installed OK opens it;
+  otherwise the pill only says "Disponible en …".
+- **Services:** hold OK on Ajustes → Launcher settings → **Mis servicios**. Mediaset Infinity is not in TMDB's
+  Spanish provider list. The Apple TV app is not installed on this TV (only TV Bro, the browser, is).
+- **Keys:** `work/recs.properties` (`tmdb_token=`, `omdb_key=`), read at build time into the APK; git ignores
+  `work/`. Without them the hero is off. TMDB's credit line is under Mis servicios.
 
 ## Remote buttons
 

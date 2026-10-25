@@ -59,6 +59,11 @@
     <string name="recs_season">Temporada %1$d</string>
     <string name="my_services">Mis servicios</string>
     <string name="my_services_hint">Las recomendaciones solo salen de estos servicios.</string>
+    <string name="recs_watch_on">Ver en %1$s</string>
+    <string name="recs_available_on">Disponible en %1$s</string>
+    <string name="recs_this_week">Esta semana</string>
+    <string name="recs_this_month">Este mes</string>
+    <string name="recs_not_interested">No me interesa</string>
     <string name="library_empty">No hay aplicaciones que se puedan abrir</string>
     <string name="library_on_home">En Inicio</string>
     <string name="library_add_home">Añadir a Inicio</string>
