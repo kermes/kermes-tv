@@ -2270,10 +2270,18 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      */
     private void followGridScroll() {
         float off = grid.computeVerticalScrollOffset();
-        if (watchNext != null) watchNext.setTranslationY(recsExpandShift - off);
+        // The grid's wrapper clips the tiles at the top of the grid area, under the header; these views are not in
+        // it, so they get the same line, or they would scroll over the clock and the top buttons.
+        int clipLine = topInRoot((View) grid.getParent());
+        if (watchNext != null) {
+            watchNext.setTranslationY(recsExpandShift - off);
+            clipAbove(watchNext, clipLine);
+        }
         if (!recsOn) return;
         recsInfo.setTranslationY(-off);
         recsMore.setTranslationY(-off);
+        clipAbove(recsInfo, clipLine);
+        clipAbove(recsMore, clipLine);
         recsBackdrop.setTranslationY(-off * 0.25f);
         recsDim = Math.max(RECS_DIM_MIN, 1f - off / Math.max(1f, root.getHeight() * 0.8f));
         if (recsShown) recsBackdrop.setAlpha(recsDim);
@@ -2455,6 +2463,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             lp.setMarginEnd(Math.round(8 * density));
             recsDots.addView(dot, lp);
         }
+    }
+
+    /** Hides the part of a child of root that is drawn above y (root coordinates); nothing when it is all below. */
+    private void clipAbove(View v, int y) {
+        int cut = Math.round(y - (v.getTop() + v.getTranslationY()));
+        if (cut <= 0) {
+            if (v.getClipBounds() != null) v.setClipBounds(null);
+            return;
+        }
+        v.setClipBounds(new Rect(0, Math.min(cut, v.getHeight()), v.getWidth(), v.getHeight()));
+    }
+
+    private int topInRoot(View v) {
+        Rect r = new Rect(0, 0, v.getWidth(), v.getHeight());
+        root.offsetDescendantRectToMyCoords(v, r);
+        return r.top;
     }
 
     private float bottomInRoot(View v) {
