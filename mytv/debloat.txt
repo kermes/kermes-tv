@@ -1,0 +1,58 @@
+# TCL 75Q7C (G08, G08_4K_GB, MediaTek), EU firmware STT2.221228.001 AS36, Google TV 12, on Ethernet.
+# Based on examples/tcl-g08-eu-android12 (same build, AS34), plus the AS36-only TCL packages that the
+# Q7C / US G08 lists disable, plus the owner's checklist answers.
+#
+# Apply:   TV_HOST=<tv ip> tools/disable.sh mytv/debloat.txt
+# Undo:    TV_HOST=<tv ip> tools/restore.sh mytv/debloat.txt
+# Everything is DISABLED, not uninstalled. Comment out any line you want to keep.
+#
+# Kept on purpose (owner's choice): com.google.android.katniss (Assistant voice), Netflix, Prime Video,
+# YouTube, com.tcl.gamebar, com.google.android.play.games.
+# Kept because the TV needs them: com.tcl.tv, com.tcl.tvinput, com.tcl.autopair, com.tcl.suspension,
+# com.tcl.interactive, com.tcl.ttvs (see the DO NOT DISABLE notes in examples/tcl-g08-eu-android12),
+# com.tcl.inputmethod.international (keyboard), Play Store / Play Services, com.dolby.*.
+
+# --- Batch 1: TCL promo, push messages, account, help/demo apps, log capture
+com.tcl.dashboard                      # home-screen push messages
+com.tcl.messagebox
+com.tcl.exhibit                        # store demo mode
+com.tcl.esticker                       # retail-demo sticker
+com.tcl.hearaid
+com.tcl.ocean.instructions             # onboarding/tips overlay
+com.tcl.repairguide
+com.tcl.logkit                         # log collection
+com.tcl.smartalexa
+com.tcl.t_solo
+com.tcl.eva                            # TCL voice layer (Katniss handles voice without it)
+com.tcl.magiconnectfree                # MagicConnect pairing promo
+com.tcl.UpdatePeripheral               # peripheral firmware helper
+com.tcl.usercenter                     # TCL account sign-in nags
+com.tcl.waterfall.overseas             # TCL movie/show recommendation browser
+com.tcl.guard                          # TCL "cleaner" / app manager
+com.tcl.channelplus                    # TCL Live FAST channels
+
+# --- Batch 2: duplicate webviews, MediaTek leftovers, casting (owner: no Chromecast/AirPlay/Miracast)
+com.tcl.android.webview
+com.iplayer.android.webview
+com.mediatek.support.webview
+com.mediatek.backgrounddetection
+com.mediatek.network
+com.mediatek.airplaydaemon
+com.mediatek.AirplayAPK
+com.tcl.airplay2
+com.tcl.miracast
+com.google.android.apps.mediashell     # Chromecast built-in
+
+# --- Batch 3: Google extras and owner's unticked apps
+com.google.android.videos              # Play Movies storefront
+com.google.android.youtube.tvmusic
+com.google.android.tts
+com.google.android.apps.tv.dreamx      # Google photo screensaver (the launcher has a clock screensaver)
+com.android.printspooler
+com.tcl.ui_mediaCenter                 # USB media player
+com.tcl.gallery                        # USB photo gallery + TCL screensavers
+
+# --- Batch 4: stock Home, only after com.kermes.tvhome is installed and confirmed as Home.
+# setupwraith owns no saved Wi-Fi network on this set (Ethernet), so disabling it is safe here.
+com.google.android.apps.tv.launcherx
+com.google.android.tungsten.setupwraith
