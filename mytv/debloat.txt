@@ -24,7 +24,7 @@ com.tcl.logkit                         # log collection
 com.tcl.smartalexa
 com.tcl.t_solo
 com.tcl.eva                            # TCL voice layer (Katniss handles voice without it)
-com.tcl.magiconnectfree                # MagicConnect pairing promo
+# com.tcl.magiconnectfree              # keep: TCL phone-remote app (TCL Home / MagiConnect) connects to it
 com.tcl.UpdatePeripheral               # peripheral firmware helper
 com.tcl.usercenter                     # TCL account sign-in nags
 com.tcl.waterfall.overseas             # TCL movie/show recommendation browser
@@ -37,11 +37,11 @@ com.iplayer.android.webview
 com.mediatek.support.webview
 com.mediatek.backgrounddetection
 com.mediatek.network
-com.mediatek.airplaydaemon
-com.mediatek.AirplayAPK
-com.tcl.airplay2
-com.tcl.miracast
-com.google.android.apps.mediashell     # Chromecast built-in
+# com.mediatek.airplaydaemon   # keep: owner uses it
+# com.mediatek.AirplayAPK   # keep: owner uses it
+# com.tcl.airplay2   # keep: owner uses it
+# com.tcl.miracast   # keep: owner uses it
+# com.google.android.apps.mediashell   # keep: Chromecast built-in, also how Google Home finds the TV for its remote
 
 # --- Batch 3: Google extras and owner's unticked apps
 com.google.android.videos              # Play Movies storefront
