@@ -9,8 +9,12 @@ import android.media.tv.TvContract;
 import android.net.Uri;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
 import java.net.URISyntaxException;
+import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -18,6 +22,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.TreeMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.function.Consumer;
@@ -49,6 +54,10 @@ final class WatchNext {
     };
     private static final ExecutorService LOADER = Executors.newSingleThreadExecutor();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
+    private static final String TAG = "TvHome.WatchNext";
+    private static final DateTimeFormatter WHEN = DateTimeFormatter.ofPattern("dd/MM HH:mm");
+    /** The last summary logged: the same table on every return to Home logs nothing, so logcat holds what changed. */
+    private static String lastLogged;
 
     private WatchNext() {
     }
@@ -95,22 +104,38 @@ final class WatchNext {
 
     static List<Item> load(Context context) {
         if (context.checkSelfPermission(READ_TV_LISTINGS) != PackageManager.PERMISSION_GRANTED) {
+            log("READ_TV_LISTINGS not granted: the row stays empty");
             return Collections.emptyList();
         }
         List<Item> all = new ArrayList<>();
         PackageManager pm = context.getPackageManager();
         Map<String, String> labels = new HashMap<>();
+        // Per app: rows read, watchlist rows and rows of a disabled app left out, the newest engagement.
+        Map<String, long[]> perApp = new TreeMap<>();
         try (Cursor c = context.getContentResolver().query(TvContract.WatchNextPrograms.CONTENT_URI,
                 PROJECTION, null, null, null)) {
-            if (c == null) return Collections.emptyList();
+            if (c == null) {
+                log("the TV provider returned no cursor");
+                return Collections.emptyList();
+            }
             while (c.moveToNext()) {
                 String pkg = c.getString(0);
                 String title = c.getString(1);
-                if (pkg == null || title == null || c.getInt(3) == TYPE_WATCHLIST) continue;
+                if (pkg == null || title == null) continue;
+                long[] n = perApp.computeIfAbsent(pkg, k -> new long[4]);
+                n[0]++;
+                n[3] = Math.max(n[3], c.getLong(4));
+                if (c.getInt(3) == TYPE_WATCHLIST) {
+                    n[1]++;
+                    continue;
+                }
                 String label = labels.get(pkg);
                 if (label == null) {
                     label = appLabel(pm, pkg);
-                    if (label == null) continue;   // the app is gone or disabled: nothing could open the row
+                    if (label == null) {   // the app is gone or disabled: nothing could open the row
+                        n[2]++;
+                        continue;
+                    }
                     labels.put(pkg, label);
                 }
                 long position = c.getLong(5);
@@ -122,6 +147,7 @@ final class WatchNext {
             }
         } catch (RuntimeException e) {
             // SecurityException on firmware that guards the table differently, or a provider that is not there.
+            log("query failed: " + e);
             return Collections.emptyList();
         }
         all.sort((a, b) -> Long.compare(b.engaged, a.engaged));
@@ -132,7 +158,35 @@ final class WatchNext {
             if (seen.add(item.pkg + '\n' + item.title)) out.add(item);
             if (out.size() == MAX) break;
         }
+        log(summary(perApp, out));
         return out;
+    }
+
+    /**
+     * One line for logcat (adb logcat -s TvHome.WatchNext): each app's rows as this launcher can read them, and how
+     * many made the row. Only rows an app marked searchable are readable here (docs/watch-next.md), so an app missing
+     * from the line published none, or none that other apps may read.
+     */
+    private static String summary(Map<String, long[]> seen, List<Item> shown) {
+        Map<String, Integer> kept = new HashMap<>();
+        for (Item item : shown) kept.merge(item.pkg, 1, Integer::sum);
+        StringBuilder sb = new StringBuilder().append(seen.size()).append(" apps");
+        for (Map.Entry<String, long[]> e : seen.entrySet()) {
+            long[] n = e.getValue();
+            sb.append("; ").append(e.getKey()).append(": ").append(n[0]).append(" rows");
+            if (n[1] > 0) sb.append(", ").append(n[1]).append(" watchlist");
+            if (n[2] > 0) sb.append(", app disabled");
+            sb.append(", newest ").append(n[3] > 0
+                    ? WHEN.format(Instant.ofEpochMilli(n[3]).atZone(ZoneId.systemDefault())) : "unset");
+            sb.append(", shown ").append(kept.getOrDefault(e.getKey(), 0));
+        }
+        return sb.toString();
+    }
+
+    private static void log(String line) {
+        if (line.equals(lastLogged)) return;
+        lastLogged = line;
+        Log.i(TAG, line);
     }
 
     /** What the row opens: the app's own intent_uri (an intent: URI or a deep link), else the app's start screen. */

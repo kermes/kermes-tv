@@ -64,6 +64,7 @@
     <string name="recs_this_week">Esta semana</string>
     <string name="recs_this_month">Este mes</string>
     <string name="recs_not_interested">No me interesa</string>
+    <string name="recs_other_titles">Otros títulos</string>
     <string name="library_empty">No hay aplicaciones que se puedan abrir</string>
     <string name="library_on_home">En Inicio</string>
     <string name="library_add_home">Añadir a Inicio</string>

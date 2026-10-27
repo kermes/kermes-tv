@@ -2330,22 +2330,35 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         grid.animate().translationY(shift).setDuration(ms).start();
     }
 
-    /** Hold OK on the hero: open it, or "Not interested", which drops it now and keeps it out of later lists. */
+    /**
+     * Hold OK on the hero: open it; "Not interested", which drops it now and keeps it out of later lists; or "Other
+     * titles", a new list now, without the titles just shown.
+     */
     private void showRecMenu() {
         if (recs.isEmpty()) return;
         Recs.Item item = recs.get(recsIndex);
         boolean openable = Recs.intentFor(this, item) != null;
-        String[] choices = openable
-                ? new String[]{getString(R.string.recs_watch_on, Recs.label(this, item)), getString(R.string.recs_not_interested)}
-                : new String[]{getString(R.string.recs_not_interested)};
+        List<String> choices = new ArrayList<>();
+        if (openable) choices.add(getString(R.string.recs_watch_on, Recs.label(this, item)));
+        choices.add(getString(R.string.recs_not_interested));
+        choices.add(getString(R.string.recs_other_titles));
+        int offset = openable ? 0 : 1;
         new AlertDialog.Builder(this)
                 .setTitle(item.title)
-                .setItems(choices,
+                .setItems(choices.toArray(new String[0]),
                         (dialog, which) -> {
-                            if (openable && which == 0) {
-                                Intent intent = Recs.intentFor(this, item);
-                                if (intent != null) open(intent);
-                                return;
+                            switch (which + offset) {
+                                case 0:
+                                    Intent intent = Recs.intentFor(this, item);
+                                    if (intent != null) open(intent);
+                                    return;
+                                case 2:
+                                    // The current list stays until the new one arrives, a few seconds later.
+                                    Recs.refresh(this);
+                                    loadRecs();
+                                    return;
+                                default:
+                                    break;
                             }
                             Recs.hide(this, item);
                             List<Recs.Item> rest = new ArrayList<>(recs);

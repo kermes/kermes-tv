@@ -24,7 +24,7 @@ com.tcl.logkit                         # log collection
 com.tcl.smartalexa
 com.tcl.t_solo
 com.tcl.eva                            # TCL voice layer (Katniss handles voice without it)
-# com.tcl.magiconnectfree              # keep: TCL phone-remote app (TCL Home / MagiConnect) connects to it
+com.tcl.magiconnectfree                # TCL phone app link (MagiConnect/T-Cast remote, photo push); not Miracast, not needed for Google Home
 com.tcl.UpdatePeripheral               # peripheral firmware helper
 com.tcl.usercenter                     # TCL account sign-in nags
 com.tcl.waterfall.overseas             # TCL movie/show recommendation browser

@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.Looper;
+import android.util.Log;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -25,10 +26,14 @@ import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
+import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Random;
 import java.util.Set;
 import java.util.TreeSet;
 import java.util.concurrent.ExecutorService;
@@ -48,8 +53,11 @@ import java.util.function.Consumer;
  *   the last six months of those.
  * - Audience scores: IMDb when it has enough votes; TMDB only when IMDb has none, with a higher bar, because TMDB's
  *   averages run high for network procedurals (Tracker, Fire Country: TMDB 7.6+, IMDb 7.1-7.2).
- * - Film: released in the last year and on streaming in the last six months. With a critic score, Rotten Tomatoes 80% or Metacritic 70, and an audience
- *   score of IMDb 6.8 (5,000 votes) or TMDB 7.0 (300 votes). Without one, the audience bar rises to 7.5.
+ * - Film: released in the last two years and on streaming in the last year. With a critic score, Rotten Tomatoes 75% or
+ *   Metacritic 65, and an audience score of IMDb 6.5 (5,000 votes) or TMDB 7.0 (300 votes). Without one, the audience
+ *   bar rises to 7.5. (Tried on Spain in October 2026: the stricter one-year, 80/70/6.8 rules let 6 of 120 films through.)
+ * - Catalogue: up to two older films on the owner's services, from a random page of the best-known ones, with IMDb 7.5
+ *   (50,000 votes) and no Rotten Tomatoes score under 80%, so the list is never only series.
  * - Series: new in the last six months, or a new season (5th at most) in the last 120 days; kids, news, reality, soap
  *   and talk shows left out. OMDb has no series critic score, so IMDb 7.6 (3,000 votes) or TMDB 7.6 (100 votes).
  *   The season cap is what keeps season 26 of a procedural out: their audience scores are as high as anything.
@@ -58,6 +66,11 @@ import java.util.function.Consumer;
  *   votes); a series with IMDb 8.4 (50,000 votes), up to its 8th season. The hero says where it streams; OK opens that app when it is
  *   installed, and does nothing otherwise.
  * - Titles the owner marked "Not interested" (hidden, by TMDB id) never come back.
+ * - Variety: a title that was in a list rests for RecsRest.REST_DAYS days, so the next day's list is made of others. Rested
+ *   titles only fill the list when too few others qualify, the longest-rested first, so the hero is never empty.
+ *
+ * What each load did goes to logcat (adb logcat -s TvHome.Recs): logcat is a fixed-size ring in memory, so nothing
+ * grows on the TV's storage.
  */
 final class Recs {
     static final String SERVICES_KEY = "recs_services";
@@ -66,8 +79,12 @@ final class Recs {
     private static final String NAME_PREFIX = "name:";
     /** Worth-a-try titles from services the owner does not have, at most. */
     private static final int MAX_OUTSIDE = 2;
+    /** Older films from the owner's services, at most. */
+    private static final int MAX_CATALOGUE = 2;
+    private static final Random RANDOM = new Random();
     static final int MAX = 10;
     private static final long MAX_AGE_MS = 20L * 60 * 60 * 1000;
+    private static final String TAG = "TvHome.Recs";
     private static final String CACHE = "recs.json";
     /** Part of the cache's signature: a change to the rules or the item fields makes the next load fetch afresh. */
     private static final int RULES = 4;
@@ -188,10 +205,24 @@ final class Recs {
             JSONObject cache = readCache(app);
             if (cache == null) return;
             try {
-                cache.put("fetched", 0L);
+                cache.put("stale", true);
                 write(app, cache);
             } catch (IOException | JSONException ignored) {
                 // the hidden set alone still keeps the title out of the next fetch
+            }
+        });
+    }
+
+    /** "Other titles": the next load fetches a whole new list, the titles just shown resting like any day's. */
+    static void refresh(Context context) {
+        Context app = context.getApplicationContext();
+        LOADER.execute(() -> {
+            JSONObject cache = readCache(app);
+            if (cache == null) return;
+            try {
+                write(app, cache.put("force", true));
+            } catch (IOException | JSONException e) {
+                Log.w(TAG, "refresh not saved: " + e);
             }
         });
     }
@@ -236,20 +267,47 @@ final class Recs {
             for (Item item : items(cache)) if (!hidden.contains(item.id)) cached.add(item);
             boolean sameServices = cache != null && signature.equals(cache.optString("signature"));
             if (sameServices && !cached.isEmpty()) MAIN.post(() -> done.accept(cached));
-            boolean fresh = sameServices && System.currentTimeMillis() - cache.optLong("fetched") < MAX_AGE_MS;
-            if (fresh || !configured()) return;
+            long fetchedAt = cache == null ? 0 : cache.optLong("fetched");
+            long ageMs = System.currentTimeMillis() - fetchedAt;
+            boolean forced = cache != null && cache.optBoolean("force");
+            boolean fresh = sameServices && ageMs < MAX_AGE_MS && !cache.optBoolean("stale") && !forced;
+            if (fresh || !configured()) {
+                logOnce("cached list: " + cached.size() + " titles, fetched " + hours(ageMs) + " ago"
+                        + (configured() ? "" : "; no API keys, never fetched"));
+                return;
+            }
+            long today = LocalDate.now().toEpochDay();
+            Map<String, Long> shown = RecsRest.rested(shownOn(cache), today);
+            Map<String, Long> resting = new HashMap<>(shown);
+            // A refetch before the list is due ("Not interested") replaces that title, not the whole list.
+            boolean due = ageMs >= MAX_AGE_MS || forced;
+            if (!due) for (Item item : cached) resting.remove(item.id);
+            Log.i(TAG, "fetching: " + (forced ? "other titles asked for" : !sameServices ? "new services or rules"
+                    : due ? "list " + hours(ageMs) + " old"
+                    : "a title was marked not interested") + ", " + resting.size() + " titles resting");
             try {
-                List<Item> fetched = fetch(app, region, chosen, hidden);
-                writeCache(app, signature, fetched);
+                List<Item> fetched = fetch(app, region, chosen, hidden, resting);
+                Set<String> before = new HashSet<>();
+                for (Item item : cached) before.add(item.id);
+                int kept = 0, fromRest = 0;
+                for (Item item : fetched) {
+                    if (before.contains(item.id)) kept++;
+                    if (resting.containsKey(item.id)) fromRest++;
+                    shown.putIfAbsent(item.id, today);
+                }
+                writeCache(app, signature, fetched, shown);
+                Log.i(TAG, "new list: " + fetched.size() + " titles, " + (fetched.size() - kept) + " not in the last one, "
+                        + fromRest + " back from rest: " + titles(fetched));
                 MAIN.post(() -> done.accept(fetched));
             } catch (IOException | JSONException | RuntimeException e) {
                 // Offline or an API hiccup: the cached list stays, and the next return to Home tries again.
+                Log.w(TAG, "fetch failed, the cached list stays: " + e);
             }
         });
     }
 
-    private static List<Item> fetch(Context context, String region, Set<String> chosen, Set<String> hidden)
-            throws IOException, JSONException {
+    private static List<Item> fetch(Context context, String region, Set<String> chosen, Set<String> hidden,
+                                    Map<String, Long> resting) throws IOException, JSONException {
         List<Service> mine = new ArrayList<>(), others = new ArrayList<>();
         for (Service s : services(context)) (chosen.contains(s.key) ? mine : others).add(s);
         if (mine.isEmpty()) return Collections.emptyList();
@@ -263,12 +321,12 @@ final class Recs {
         List<Item> films = new ArrayList<>();
         for (int page = 1; page <= 2; page++) {
             JSONArray results = tmdb("/discover/movie?" + base + "&page=" + page + "&vote_count.gte=50"
-                    + "&primary_release_date.gte=" + today.minusDays(365)).optJSONArray("results");
+                    + "&primary_release_date.gte=" + today.minusDays(730)).optJSONArray("results");
             for (int i = 0; results != null && i < results.length(); i++) {
                 if (hidden.contains("movie:" + results.getJSONObject(i).optInt("id"))) continue;
                 tried++;
                 try {
-                    Item item = film(results.getJSONObject(i), region, language, mine, null);
+                    Item item = film(results.getJSONObject(i), region, language, mine, null, false);
                     if (item != null) films.add(item);
                 } catch (IOException | JSONException e) {
                     failed++;
@@ -292,23 +350,22 @@ final class Recs {
             }
         }
         if (tried > 0 && failed == tried) throw new IOException("every title failed");
-        List<Item> outside = worthATry(context, region, mine, others, language, today, hidden);
+        // Worth-a-try picks are few and exceptional: a resting one is skipped for the next, never used to fill.
+        Set<String> skip = new HashSet<>(hidden);
+        skip.addAll(resting.keySet());
+        List<Item> outside = worthATry(context, region, mine, others, language, today, skip);
+        List<Item> catalogue = catalogue(region, mine, language, today, skip);
         // Newest first (what just came out is what the owner may have been waiting for), film and series in turn:
         // new seasons air every week, and by date alone they would push every film out. Worth-a-try picks go third
         // and seventh.
-        String since = today.minusDays(183).toString();
-        for (List<Item> kind : Arrays.asList(films, series)) {
-            kind.removeIf(item -> item.date.compareTo(since) < 0);
-            kind.sort((a, b) -> b.date.compareTo(a.date));
-        }
-        List<Item> out = new ArrayList<>();
-        int room = MAX - outside.size();
-        for (int i = 0; out.size() < room && (i < films.size() || i < series.size()); i++) {
-            if (i < films.size()) out.add(films.get(i));
-            if (i < series.size() && out.size() < room) out.add(series.get(i));
-        }
-        for (int i = 0; i < outside.size(); i++) out.add(Math.min(out.size(), 2 + 4 * i), outside.get(i));
-        return out;
+        // A film by the day it reached streaming in the last year, a series by its season in the last six months.
+        String filmsSince = today.minusDays(365).toString(), seriesSince = today.minusDays(183).toString();
+        films.removeIf(item -> item.date.compareTo(filmsSince) < 0);
+        series.removeIf(item -> item.date.compareTo(seriesSince) < 0);
+        for (List<Item> kind : Arrays.asList(films, series)) kind.sort((a, b) -> b.date.compareTo(a.date));
+        Log.i(TAG, tried + " titles checked, " + failed + " failed; qualified: " + films.size() + " films, "
+                + series.size() + " series, " + outside.size() + " worth a try, " + catalogue.size() + " from the catalogue");
+        return RecsRest.arrange(films, series, outside, catalogue, resting);
     }
 
     /**
@@ -326,7 +383,7 @@ final class Recs {
             for (int i = 0; films != null && i < films.length() && out.size() < MAX_OUTSIDE; i++) {
                 if (hidden.contains("movie:" + films.getJSONObject(i).optInt("id"))) continue;
                 try {
-                    Item item = film(films.getJSONObject(i), region, language, mine, known);
+                    Item item = film(films.getJSONObject(i), region, language, mine, known, false);
                     if (item != null) out.add(item);
                 } catch (IOException | JSONException ignored) {
                     // skip this one
@@ -349,6 +406,39 @@ final class Recs {
         return out;
     }
 
+    /**
+     * Older films on the owner's services: a random page of the best-known ones (2,000 TMDB votes, released over two
+     * years ago), shuffled, the first MAX_CATALOGUE that pass. Resting and hidden titles are skipped.
+     */
+    private static List<Item> catalogue(String region, List<Service> mine, String language, LocalDate today,
+                                        Set<String> skip) {
+        List<Item> out = new ArrayList<>();
+        String query = "/discover/movie?" + discoverBase(region, mine, language) + "&vote_count.gte=2000"
+                + "&primary_release_date.lte=" + today.minusDays(730);
+        try {
+            JSONObject first = tmdb(query + "&page=1");
+            int pages = Math.max(1, Math.min(first.optInt("total_pages", 1), 20));
+            int page = 1 + RANDOM.nextInt(pages);
+            JSONArray results = (page == 1 ? first : tmdb(query + "&page=" + page)).optJSONArray("results");
+            List<JSONObject> picks = new ArrayList<>();
+            for (int i = 0; results != null && i < results.length(); i++) picks.add(results.getJSONObject(i));
+            Collections.shuffle(picks, RANDOM);
+            for (JSONObject m : picks) {
+                if (out.size() == MAX_CATALOGUE) break;
+                if (skip.contains("movie:" + m.optInt("id"))) continue;
+                try {
+                    Item item = film(m, region, language, mine, null, true);
+                    if (item != null) out.add(item);
+                } catch (IOException | JSONException ignored) {
+                    // skip this one
+                }
+            }
+        } catch (IOException | JSONException e) {
+            // no catalogue picks this time; the new titles still stand
+        }
+        return out;
+    }
+
     private static String discoverBase(String region, List<Service> services, String language) {
         Set<Integer> providerIds = new LinkedHashSet<>();
         for (Service s : services) providerIds.addAll(s.providers);
@@ -360,8 +450,8 @@ final class Recs {
     }
 
     /** @param outside null for the owner's own list; for worth-a-try picks, the other services recs_services knows. */
-    private static Item film(JSONObject m, String region, String language, List<Service> mine, List<Service> outside)
-            throws IOException, JSONException {
+    private static Item film(JSONObject m, String region, String language, List<Service> mine, List<Service> outside,
+                             boolean catalogue) throws IOException, JSONException {
         JSONObject d = tmdb("/movie/" + m.getInt("id") + "?language=" + enc(language)
                 + "&append_to_response=" + enc("external_ids,watch/providers,release_dates"));
         String service = outside == null ? serviceFor(d, region, mine) : serviceOutside(d, region, mine, outside);
@@ -373,16 +463,18 @@ final class Recs {
         int imdbVotes = intOf(o.optString("imdbVotes").replace(",", ""));
         double tmdb = m.optDouble("vote_average");
         int tmdbVotes = m.optInt("vote_count");
-        boolean critics = rt >= 80 || mc >= 70;
+        boolean critics = rt >= 75 || mc >= 65;
         boolean byImdb = imdbVotes >= 5000;
-        boolean audience = byImdb ? imdb >= 6.8 : tmdb >= 7.0 && tmdbVotes >= 300;
+        boolean audience = byImdb ? imdb >= 6.5 : tmdb >= 7.0 && tmdbVotes >= 300;
         boolean strongAudience = byImdb ? imdb >= 7.5 : tmdb >= 7.6 && tmdbVotes >= 500;
         boolean pass = rt >= 0 || mc >= 0 ? critics && audience : strongAudience;
         if (outside != null) pass = rt >= 93 && mc >= 80 && imdb >= 7.5 && imdbVotes >= 20000;
+        if (catalogue) pass = imdb >= 7.5 && imdbVotes >= 50000 && (rt < 0 || rt >= 80);
         if (!pass) return null;
+        // A catalogue film is dated by its release: the hero shows its year, not "this month".
         return new Item("movie:" + m.getInt("id"), false, outside != null, d.optString("title"),
                 year(d.optString("release_date")), d.optString("overview"), IMAGES + backdrop, service, null,
-                streamingDate(d, region), rt, mc, imdb);
+                catalogue ? d.optString("release_date") : streamingDate(d, region), rt, mc, imdb);
     }
 
     private static Item series(Context context, JSONObject t, String region, String language, List<Service> mine,
@@ -583,11 +675,55 @@ final class Recs {
         return out;
     }
 
-    private static void writeCache(Context context, String signature, List<Item> items) throws IOException, JSONException {
+    /**
+     * When each title was first put in a list (epoch day): what rests. Pruned to RecsRest.REST_DAYS on every fetch. A cache
+     * written before this was kept counts its own list as shown on the day it was fetched.
+     */
+    private static Map<String, Long> shownOn(JSONObject cache) {
+        Map<String, Long> out = new HashMap<>();
+        if (cache == null) return out;
+        JSONObject o = cache.optJSONObject("shown");
+        if (o == null) {
+            long day = Math.floorDiv(cache.optLong("fetched"), 24L * 60 * 60 * 1000);
+            for (Item item : items(cache)) out.put(item.id, day);
+            return out;
+        }
+        for (Iterator<String> keys = o.keys(); keys.hasNext(); ) {
+            String id = keys.next();
+            out.put(id, o.optLong(id));
+        }
+        return out;
+    }
+
+    private static void writeCache(Context context, String signature, List<Item> items, Map<String, Long> shown)
+            throws IOException, JSONException {
         JSONArray list = new JSONArray();
         for (Item item : items) list.put(item.toJson());
+        JSONObject shownJson = new JSONObject();
+        for (Map.Entry<String, Long> e : shown.entrySet()) shownJson.put(e.getKey(), (long) e.getValue());
         write(context, new JSONObject().put("fetched", System.currentTimeMillis()).put("signature", signature)
-                .put("items", list));
+                .put("items", list).put("shown", shownJson));
+    }
+
+    // ---- logcat ----------------------------------------------------------------------------------
+
+    private static String lastLogged;
+
+    /** The cached-list line repeats on every return to Home; logged only when it changes. */
+    private static void logOnce(String line) {
+        if (line.equals(lastLogged)) return;
+        lastLogged = line;
+        Log.i(TAG, line);
+    }
+
+    private static String hours(long ms) {
+        return ms < 0 || ms > 100L * 24 * 60 * 60 * 1000 ? "never" : ms / (60 * 60 * 1000) + "h";
+    }
+
+    private static String titles(List<Item> items) {
+        StringBuilder sb = new StringBuilder();
+        for (Item item : items) sb.append(sb.length() == 0 ? "" : ", ").append(item.title);
+        return sb.toString();
     }
 
     private static void write(Context context, JSONObject cache) throws IOException {
