@@ -56,15 +56,20 @@ import java.util.function.Consumer;
  * - Film: released in the last two years and on streaming in the last year. With a critic score, Rotten Tomatoes 75% or
  *   Metacritic 65, and an audience score of IMDb 6.5 (5,000 votes) or TMDB 7.0 (300 votes). Without one, the audience
  *   bar rises to 7.5. (Tried on Spain in October 2026: the stricter one-year, 80/70/6.8 rules let 6 of 120 films through.)
- * - Catalogue: up to two older films on the owner's services, from a random page of the best-known ones, with IMDb 7.5
- *   (50,000 votes) and no Rotten Tomatoes score under 80%, so the list is never only series.
+ * - Catalogue: one older film on the owner's services, from random pages of the best-known ones, with IMDb 7.5
+ *   (50,000 votes) and no Rotten Tomatoes score under 80%, at a random place. Up to CATALOGUE_SPARE
+ *   more take the places new titles leave, before a resting title comes back.
  * - Series: new in the last six months, or a new season (5th at most) in the last 120 days; kids, news, reality, soap
  *   and talk shows left out. OMDb has no series critic score, so IMDb 7.6 (3,000 votes) or TMDB 7.6 (100 votes).
  *   The season cap is what keeps season 26 of a procedural out: their audience scores are as high as anything.
  * - Worth a try (on any service streaming in recs_region that the owner does not have: Apple TV+, Filmin, Netflix...):
- *   at most two, and only exceptional ones: a film with Rotten Tomatoes 93%, Metacritic 80 and IMDb 7.5 (20,000
+ *   at most one, at a random place, and only exceptional ones: a film with Rotten Tomatoes 93%, Metacritic 80 and IMDb 7.5 (20,000
  *   votes); a series with IMDb 8.4 (50,000 votes), up to its 8th season. The hero says where it streams; OK opens that app when it is
  *   installed, and does nothing otherwise.
+ * - Just in: up to MAX_JUST_IN places for a film that reached streaming, or a series that premiered or started a
+ *   season, in the last JUST_IN_DAYS days, that missed the bar above but is not bad: IMDb 6.0 (1,000 votes) or TMDB
+ *   6.0, and no Rotten Tomatoes score under 40%. No places of their own: as the newest they sort first among the
+ *   new titles, count toward the films and series floor, and the hero says "Just in".
  * - Titles the owner marked "Not interested" (hidden, by TMDB id) never come back.
  * - Variety: a title that was in a list rests for RecsRest.REST_DAYS days, so the next day's list is made of others. Rested
  *   titles only fill the list when too few others qualify, the longest-rested first, so the hero is never empty.
@@ -78,9 +83,17 @@ final class Recs {
     /** Item.service for a worth-a-try service that recs_services does not list: its TMDB name after this. */
     private static final String NAME_PREFIX = "name:";
     /** Worth-a-try titles from services the owner does not have, at most. */
-    private static final int MAX_OUTSIDE = 2;
+    private static final int MAX_OUTSIDE = 1;
     /** Older films from the owner's services, at most. */
-    private static final int MAX_CATALOGUE = 2;
+    private static final int MAX_CATALOGUE = 1;
+    /**
+     * More catalogue films, used like new ones once the new titles run out, before any resting title comes back: about
+     * 30 new titles qualify, and ten a day resting four days would need 40.
+     */
+    private static final int CATALOGUE_SPARE = 6;
+    /** Recent titles below the bar, at most, and how recent. */
+    private static final int MAX_JUST_IN = 3;
+    private static final int JUST_IN_DAYS = 14;
     private static final Random RANDOM = new Random();
     static final int MAX = 10;
     private static final long MAX_AGE_MS = 20L * 60 * 60 * 1000;
@@ -125,9 +138,19 @@ final class Recs {
         final String date;
         final int rottenTomatoes, metacritic;
         final double imdb;
+        /** Just out and below the usual bar: one of the "just in" places. */
+        final boolean justIn;
 
         Item(String id, boolean series, boolean outside, String title, String year, String overview, String backdrop,
              String service, String note, String date, int rottenTomatoes, int metacritic, double imdb) {
+            this(id, series, outside, title, year, overview, backdrop, service, note, date, rottenTomatoes, metacritic,
+                    imdb, false);
+        }
+
+        Item(String id, boolean series, boolean outside, String title, String year, String overview, String backdrop,
+             String service, String note, String date, int rottenTomatoes, int metacritic, double imdb, boolean justIn) {
+            this.justIn = justIn;
+
             this.date = date;
             this.id = id;
             this.series = series;
@@ -146,14 +169,14 @@ final class Recs {
         JSONObject toJson() throws JSONException {
             return new JSONObject().put("id", id).put("series", series).put("outside", outside).put("title", title).put("year", year)
                     .put("overview", overview).put("backdrop", backdrop).put("service", service).put("note", note).put("date", date)
-                    .put("rt", rottenTomatoes).put("mc", metacritic).put("imdb", imdb);
+                    .put("rt", rottenTomatoes).put("mc", metacritic).put("imdb", imdb).put("justIn", justIn);
         }
 
         static Item fromJson(JSONObject o) {
             return new Item(o.optString("id"), o.optBoolean("series"), o.optBoolean("outside"), o.optString("title"),
                     o.optString("year"), o.optString("overview"), o.optString("backdrop"), o.optString("service"),
                     o.isNull("note") ? null : o.optString("note", null), o.optString("date"),
-                    o.optInt("rt", -1), o.optInt("mc", -1), o.optDouble("imdb", -1));
+                    o.optInt("rt", -1), o.optInt("mc", -1), o.optDouble("imdb", -1), o.optBoolean("justIn"));
         }
     }
 
@@ -293,7 +316,9 @@ final class Recs {
                 for (Item item : fetched) {
                     if (before.contains(item.id)) kept++;
                     if (resting.containsKey(item.id)) fromRest++;
-                    shown.putIfAbsent(item.id, today);
+                    // Every title in the list starts its rest today, one brought back to fill included: kept at
+                    // its first day, it would stay the longest-rested and fill the next list too, and the next.
+                    shown.put(item.id, today);
                 }
                 writeCache(app, signature, fetched, shown);
                 Log.i(TAG, "new list: " + fetched.size() + " titles, " + (fetched.size() - kept) + " not in the last one, "
@@ -354,18 +379,33 @@ final class Recs {
         Set<String> skip = new HashSet<>(hidden);
         skip.addAll(resting.keySet());
         List<Item> outside = worthATry(context, region, mine, others, language, today, skip);
-        List<Item> catalogue = catalogue(region, mine, language, today, skip);
+        List<Item> catalogue = catalogue(region, mine, language, today, skip, MAX_CATALOGUE + CATALOGUE_SPARE);
+        List<Item> spare = new ArrayList<>(catalogue.subList(Math.min(MAX_CATALOGUE, catalogue.size()), catalogue.size()));
+        catalogue = new ArrayList<>(catalogue.subList(0, Math.min(MAX_CATALOGUE, catalogue.size())));
         // Newest first (what just came out is what the owner may have been waiting for), film and series in turn:
-        // new seasons air every week, and by date alone they would push every film out. Worth-a-try picks go third
-        // and seventh.
+        // new seasons air every week, and by date alone they would push every film out.
         // A film by the day it reached streaming in the last year, a series by its season in the last six months.
         String filmsSince = today.minusDays(365).toString(), seriesSince = today.minusDays(183).toString();
         films.removeIf(item -> item.date.compareTo(filmsSince) < 0);
         series.removeIf(item -> item.date.compareTo(seriesSince) < 0);
         for (List<Item> kind : Arrays.asList(films, series)) kind.sort((a, b) -> b.date.compareTo(a.date));
+        // Just in: the newest MAX_JUST_IN stay among the new titles; the rest, and resting ones, are not brought back.
+        List<Item> justIn = new ArrayList<>();
+        for (List<Item> kind : Arrays.asList(films, series)) {
+            for (Item item : kind) if (item.justIn && !resting.containsKey(item.id)) justIn.add(item);
+        }
+        justIn.sort((a, b) -> b.date.compareTo(a.date));
+        Set<String> keep = new HashSet<>();
+        for (int i = 0; i < Math.min(MAX_JUST_IN, justIn.size()); i++) keep.add(justIn.get(i).id);
+        for (List<Item> kind : Arrays.asList(films, series)) kind.removeIf(item -> item.justIn && !keep.contains(item.id));
+        // After the new films, so they only take places the new titles leave.
+        films.addAll(spare);
         Log.i(TAG, tried + " titles checked, " + failed + " failed; qualified: " + films.size() + " films, "
-                + series.size() + " series, " + outside.size() + " worth a try, " + catalogue.size() + " from the catalogue");
-        return RecsRest.arrange(films, series, outside, catalogue, resting);
+                + series.size() + " series (" + spare.size() + " of the films from the catalogue), " + outside.size()
+                + " worth a try, " + catalogue.size() + " catalogue pick, " + keep.size() + " of them just in");
+        List<Item> extras = new ArrayList<>(outside);
+        extras.addAll(catalogue);
+        return RecsRest.arrange(films, series, extras, resting, RANDOM);
     }
 
     /**
@@ -407,30 +447,34 @@ final class Recs {
     }
 
     /**
-     * Older films on the owner's services: a random page of the best-known ones (2,000 TMDB votes, released over two
-     * years ago), shuffled, the first MAX_CATALOGUE that pass. Resting and hidden titles are skipped.
+     * Older films on the owner's services: random pages of the best-known ones (2,000 TMDB votes, released over two
+     * years ago), shuffled, the first want that pass, from two pages at most. Resting and hidden titles are skipped.
      */
     private static List<Item> catalogue(String region, List<Service> mine, String language, LocalDate today,
-                                        Set<String> skip) {
+                                        Set<String> skip, int want) {
         List<Item> out = new ArrayList<>();
         String query = "/discover/movie?" + discoverBase(region, mine, language) + "&vote_count.gte=2000"
                 + "&primary_release_date.lte=" + today.minusDays(730);
         try {
             JSONObject first = tmdb(query + "&page=1");
-            int pages = Math.max(1, Math.min(first.optInt("total_pages", 1), 20));
-            int page = 1 + RANDOM.nextInt(pages);
-            JSONArray results = (page == 1 ? first : tmdb(query + "&page=" + page)).optJSONArray("results");
-            List<JSONObject> picks = new ArrayList<>();
-            for (int i = 0; results != null && i < results.length(); i++) picks.add(results.getJSONObject(i));
-            Collections.shuffle(picks, RANDOM);
-            for (JSONObject m : picks) {
-                if (out.size() == MAX_CATALOGUE) break;
-                if (skip.contains("movie:" + m.optInt("id"))) continue;
-                try {
-                    Item item = film(m, region, language, mine, null, true);
-                    if (item != null) out.add(item);
-                } catch (IOException | JSONException ignored) {
-                    // skip this one
+            List<Integer> pages = new ArrayList<>();
+            for (int p = 1; p <= Math.min(first.optInt("total_pages", 1), 20); p++) pages.add(p);
+            Collections.shuffle(pages, RANDOM);
+            for (int n = 0; n < Math.min(2, pages.size()) && out.size() < want; n++) {
+                int page = pages.get(n);
+                JSONArray results = (page == 1 ? first : tmdb(query + "&page=" + page)).optJSONArray("results");
+                List<JSONObject> picks = new ArrayList<>();
+                for (int i = 0; results != null && i < results.length(); i++) picks.add(results.getJSONObject(i));
+                Collections.shuffle(picks, RANDOM);
+                for (JSONObject m : picks) {
+                    if (out.size() == want) break;
+                    if (skip.contains("movie:" + m.optInt("id"))) continue;
+                    try {
+                        Item item = film(m, region, language, mine, null, true);
+                        if (item != null) out.add(item);
+                    } catch (IOException | JSONException ignored) {
+                        // skip this one
+                    }
                 }
             }
         } catch (IOException | JSONException e) {
@@ -470,11 +514,13 @@ final class Recs {
         boolean pass = rt >= 0 || mc >= 0 ? critics && audience : strongAudience;
         if (outside != null) pass = rt >= 93 && mc >= 80 && imdb >= 7.5 && imdbVotes >= 20000;
         if (catalogue) pass = imdb >= 7.5 && imdbVotes >= 50000 && (rt < 0 || rt >= 80);
-        if (!pass) return null;
         // A catalogue film is dated by its release: the hero shows its year, not "this month".
+        String date = catalogue ? d.optString("release_date") : streamingDate(d, region);
+        boolean justIn = !pass && outside == null && !catalogue && justIn(date, imdb, imdbVotes, tmdb, tmdbVotes, rt);
+        if (!pass && !justIn) return null;
         return new Item("movie:" + m.getInt("id"), false, outside != null, d.optString("title"),
                 year(d.optString("release_date")), d.optString("overview"), IMAGES + backdrop, service, null,
-                catalogue ? d.optString("release_date") : streamingDate(d, region), rt, mc, imdb);
+                date, rt, mc, imdb, justIn);
     }
 
     private static Item series(Context context, JSONObject t, String region, String language, List<Service> mine,
@@ -509,11 +555,23 @@ final class Recs {
         boolean audience = imdbVotes >= 3000 ? imdb >= 7.6
                 : t.optDouble("vote_average") >= 8.0 && t.optInt("vote_count") >= 300;
         if (outside != null) audience = imdb >= 8.4 && imdbVotes >= 50000;
-        if (!audience || rt >= 0 && rt < 80) return null;
+        boolean pass = audience && (rt < 0 || rt >= 80);
+        String date = newSeason ? latestDate : d.optString("first_air_date");
+        boolean justIn = !pass && outside == null
+                && justIn(date, imdb, imdbVotes, t.optDouble("vote_average"), t.optInt("vote_count"), rt);
+        if (!pass && !justIn) return null;
         String note = newSeason ? context.getString(R.string.recs_season, latest) : context.getString(R.string.recs_new_series);
         return new Item("tv:" + t.getInt("id"), true, outside != null, d.optString("name"),
                 year(d.optString("first_air_date")), d.optString("overview"), IMAGES + backdrop, service, note,
-                newSeason ? latestDate : d.optString("first_air_date"), rt, -1, imdb);
+                date, rt, -1, imdb, justIn);
+    }
+
+    /** Out in the last JUST_IN_DAYS days and not bad: the bar for a "just in" place. */
+    private static boolean justIn(String date, double imdb, int imdbVotes, double tmdb, int tmdbVotes, int rt) {
+        if (date == null || date.compareTo(LocalDate.now().minusDays(JUST_IN_DAYS).toString()) < 0) return false;
+        if (date.compareTo(LocalDate.now().toString()) > 0) return false;
+        boolean audience = imdbVotes >= 1000 ? imdb >= 6.0 : tmdb >= 6.0 && tmdbVotes >= 20;
+        return audience && (rt < 0 || rt >= 40);
     }
 
     /**

@@ -5,6 +5,7 @@ import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 /**
  * Variety for the recommendations hero (Recs): a title that was in a list rests for REST_DAYS days, so the next day's
@@ -21,15 +22,16 @@ final class RecsRest {
     static final int MIN_EACH = 3;
 
     /**
-     * The list: film and series in turn, newest first, the titles not resting before any resting one. Neither kind
-     * drops below MIN_EACH while it has titles: a kind short of new ones makes up the rest from its resting titles,
-     * the longest-rested first, in place of the other kind's last picks. Past that the kind with more new titles
-     * takes more places, with no fixed share. When too few qualify, resting titles fill the list, the longest-rested
-     * first. Worth-a-try picks go third and eighth, catalogue films fifth and tenth.
+     * The list: film and series in turn, newest first (so what is just in leads), the titles not resting before any
+     * resting one. Neither kind drops below MIN_EACH while it has titles: a kind short of new ones makes up the rest
+     * from its resting titles, the longest-rested first, in place of the other kind's last picks. Past that the kind
+     * with more new titles takes more places, with no fixed share. When too few qualify, resting titles fill the list,
+     * the longest-rested first. The extras (a worth-a-try pick, a catalogue film) go to random places from the third
+     * on, so the list does not have the same shape every day.
      */
-    static List<Recs.Item> arrange(List<Recs.Item> films, List<Recs.Item> series, List<Recs.Item> outside,
-                                   List<Recs.Item> catalogue, Map<String, Long> resting) {
-        int room = Recs.MAX - outside.size() - catalogue.size();
+    static List<Recs.Item> arrange(List<Recs.Item> films, List<Recs.Item> series, List<Recs.Item> extras,
+                                   Map<String, Long> resting, Random random) {
+        int room = Recs.MAX - extras.size();
         Kind f = new Kind(films, resting), s = new Kind(series, resting);
         // New titles, in turn.
         while (f.total() + s.total() < room && (f.freshLeft() || s.freshLeft())) {
@@ -58,8 +60,9 @@ final class RecsRest {
             if (i < fs.size()) out.add(fs.get(i));
             if (i < ss.size()) out.add(ss.get(i));
         }
-        for (int i = 0; i < outside.size(); i++) out.add(Math.min(out.size(), 2 + 4 * i), outside.get(i));
-        for (int i = 0; i < catalogue.size(); i++) out.add(Math.min(out.size(), 4 + 5 * i), catalogue.get(i));
+        for (Recs.Item extra : extras) {
+            out.add(out.size() < 2 ? out.size() : 2 + random.nextInt(out.size() - 1), extra);
+        }
         return out;
     }
 

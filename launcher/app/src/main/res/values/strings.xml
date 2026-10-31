@@ -119,6 +119,7 @@
     <string name="recs_this_month">This month</string>
     <string name="recs_not_interested">Not interested</string>
     <string name="recs_other_titles">Other titles</string>
+    <string name="recs_just_in">Just in</string>
     <!-- TMDB's required notice (developer.themoviedb.org/docs/faq), with the other data source. -->
     <string name="recs_credit" translatable="false">Recommendations use TMDB and OMDb data. This product uses the TMDB API but is not endorsed or certified by TMDB.</string>
     <!-- Under a Continue watching card: the app, then the episode. -->

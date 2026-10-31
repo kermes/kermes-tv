@@ -111,6 +111,7 @@
     <string name="recs_this_month">החודש</string>
     <string name="recs_not_interested">לא מעניין אותי</string>
     <string name="recs_other_titles">המלצות אחרות</string>
+    <string name="recs_just_in">חדש</string>
     <string name="library_empty">לא נמצאו אפליקציות שניתן לפתוח</string>
     <string name="library_on_home">במסך הבית</string>
     <string name="library_add_home">הוספה למסך הבית</string>

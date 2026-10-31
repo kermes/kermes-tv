@@ -9,6 +9,7 @@ import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Random;
 
 import org.junit.Test;
 
@@ -30,10 +31,21 @@ public class RecsRestTest {
         return out;
     }
 
+    private static int seriesIn(List<Recs.Item> items) {
+        int n = 0;
+        for (Recs.Item item : items) if (item.series) n++;
+        return n;
+    }
+
+    private static List<Recs.Item> arrange(List<Recs.Item> films, List<Recs.Item> series, List<Recs.Item> extras,
+                                           Map<String, Long> resting) {
+        return RecsRest.arrange(films, series, extras, resting, new Random(1));
+    }
+
     @Test
     public void filmAndSeriesInTurnWithNothingResting() {
-        List<Recs.Item> out = RecsRest.arrange(items("movie:", 6), items("tv:", 6), Collections.emptyList(),
-                Collections.emptyList(), Collections.emptyMap());
+        List<Recs.Item> out = arrange(items("movie:", 6), items("tv:", 6), Collections.emptyList(),
+                Collections.emptyMap());
         assertEquals(Recs.MAX, out.size());
         assertEquals(Arrays.asList("movie:0", "tv:0", "movie:1", "tv:1"), ids(out).subList(0, 4));
     }
@@ -45,8 +57,7 @@ public class RecsRestTest {
             resting.put("movie:" + i, 100L);
             resting.put("tv:" + i, 100L);
         }
-        List<Recs.Item> out = RecsRest.arrange(items("movie:", 10), items("tv:", 10), Collections.emptyList(),
-                Collections.emptyList(), resting);
+        List<Recs.Item> out = arrange(items("movie:", 10), items("tv:", 10), Collections.emptyList(), resting);
         assertEquals(Recs.MAX, out.size());
         for (Recs.Item item : out) assertTrue(item.id, !resting.containsKey(item.id));
     }
@@ -57,8 +68,7 @@ public class RecsRestTest {
         resting.put("movie:0", 102L);
         resting.put("movie:1", 100L);
         resting.put("tv:0", 101L);
-        List<Recs.Item> out = RecsRest.arrange(items("movie:", 3), items("tv:", 2), Collections.emptyList(),
-                Collections.emptyList(), resting);
+        List<Recs.Item> out = arrange(items("movie:", 3), items("tv:", 2), Collections.emptyList(), resting);
         assertEquals(Arrays.asList("movie:2", "tv:1", "movie:1", "tv:0", "movie:0"), ids(out));
     }
 
@@ -66,8 +76,7 @@ public class RecsRestTest {
     public void aKindWithOnlyRestingTitlesStillGetsItsFloorLongestRestedFirst() {
         Map<String, Long> resting = new HashMap<>();
         for (int i = 0; i < 15; i++) resting.put("tv:" + i, 100L + (15 - i));   // tv:14 rested longest
-        List<Recs.Item> out = RecsRest.arrange(items("movie:", 15), items("tv:", 15), Collections.emptyList(),
-                Collections.emptyList(), resting);
+        List<Recs.Item> out = arrange(items("movie:", 15), items("tv:", 15), Collections.emptyList(), resting);
         assertEquals(Recs.MAX, out.size());
         List<String> series = new ArrayList<>();
         for (Recs.Item item : out) if (item.series) series.add(item.id);
@@ -77,46 +86,34 @@ public class RecsRestTest {
 
     @Test
     public void pastTheFloorTheKindWithMoreNewTitlesTakesMorePlaces() {
-        List<Recs.Item> out = RecsRest.arrange(items("movie:", 15), items("tv:", 4), Collections.emptyList(),
-                Collections.emptyList(), Collections.emptyMap());
-        int series = 0;
-        for (Recs.Item item : out) if (item.series) series++;
+        List<Recs.Item> out = arrange(items("movie:", 15), items("tv:", 4), Collections.emptyList(),
+                Collections.emptyMap());
         assertEquals(Recs.MAX, out.size());
-        assertEquals(4, series);
+        assertEquals(4, seriesIn(out));
     }
 
     @Test
     public void theFloorNeverTakesTheOtherKindBelowItsOwn() {
         Map<String, Long> resting = new HashMap<>();
         for (int i = 0; i < 5; i++) resting.put("tv:" + i, 100L);
-        List<Recs.Item> outside = Arrays.asList(item("movie:x"), item("tv:y"));
-        List<Recs.Item> catalogue = Arrays.asList(item("movie:old1"), item("movie:old2"));
-        List<Recs.Item> out = RecsRest.arrange(items("movie:", 2), items("tv:", 5), outside, catalogue, resting);
-        assertEquals(Recs.MAX, out.size());
-        assertTrue(ids(out).containsAll(Arrays.asList("movie:0", "movie:1", "tv:0", "tv:1", "tv:2", "tv:3")));
+        List<Recs.Item> extras = Arrays.asList(item("movie:x"), item("movie:old"));
+        List<Recs.Item> out = arrange(items("movie:", 2), items("tv:", 5), extras, resting);
+        assertEquals(Recs.MAX - 1, out.size());
+        assertTrue(ids(out).containsAll(Arrays.asList("movie:0", "movie:1", "tv:0", "tv:1", "tv:2", "tv:3", "tv:4")));
     }
 
     @Test
-    public void worthATryPicksGoThirdAndSeventh() {
-        List<Recs.Item> outside = Arrays.asList(item("movie:x"), item("tv:y"));
-        List<Recs.Item> out = RecsRest.arrange(items("movie:", 6), items("tv:", 6), outside, Collections.emptyList(),
-                Collections.emptyMap());
-        assertEquals(Recs.MAX, out.size());
-        assertEquals("movie:x", out.get(2).id);
-        assertEquals("tv:y", out.get(6).id);
-    }
-
-    @Test
-    public void catalogueFilmsGoFifthAndTenthAroundWorthATry() {
-        List<Recs.Item> outside = Arrays.asList(item("movie:x"), item("tv:y"));
-        List<Recs.Item> catalogue = Arrays.asList(item("movie:old1"), item("movie:old2"));
-        List<Recs.Item> out = RecsRest.arrange(items("movie:", 6), items("tv:", 6), outside, catalogue,
-                Collections.emptyMap());
-        assertEquals(Recs.MAX, out.size());
-        assertEquals("movie:x", out.get(2).id);
-        assertEquals("movie:old1", out.get(4).id);
-        assertEquals("tv:y", out.get(7).id);
-        assertEquals("movie:old2", out.get(9).id);
+    public void extrasGoToSomePlaceFromTheThirdOnAndTakeOnlyTheirOwnPlaces() {
+        List<Recs.Item> extras = Arrays.asList(item("movie:x"), item("movie:old"));
+        for (int seed = 0; seed < 50; seed++) {
+            List<Recs.Item> out = RecsRest.arrange(items("movie:", 6), items("tv:", 6), extras,
+                    Collections.emptyMap(), new Random(seed));
+            assertEquals(Recs.MAX, out.size());
+            List<String> ids = ids(out);
+            assertTrue(ids.indexOf("movie:x") >= 2);
+            assertTrue(ids.indexOf("movie:old") >= 2);
+            assertEquals(4, seriesIn(out));
+        }
     }
 
     @Test

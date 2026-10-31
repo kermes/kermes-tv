@@ -2157,6 +2157,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (recsShown) placeRecs(dockTop);
         if (wasShown) return;
         watchNext.animate().cancel();
+        watchNext.animate().setUpdateListener(null);   // expandRecs' clip follower would hold the alpha at 1
         watchNext.setVisibility(View.VISIBLE);
         if (animations && !reducedMotion) watchNext.animate().alpha(1f).setDuration(260).start();
         else watchNext.setAlpha(1f);
@@ -2166,6 +2167,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (watchNext == null || !watchNextShown) return;
         watchNextShown = false;
         watchNext.animate().cancel();
+        watchNext.animate().setUpdateListener(null);
         if (animations && !reducedMotion) {
             watchNext.animate().alpha(0f).setDuration(160).withEndAction(() -> {
                 if (!watchNextShown) watchNext.setVisibility(View.INVISIBLE);
@@ -2270,9 +2272,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      */
     private void followGridScroll() {
         float off = gridScroll();
-        // The grid's wrapper clips the tiles at the top of the grid area, under the header; these views are not in
-        // it, so they get the same line, or they would scroll over the clock and the top buttons.
-        int clipLine = topInRoot((View) grid.getParent());
+        int clipLine = clipLine();
         if (watchNext != null) {
             watchNext.setTranslationY(recsExpandShift - off);
             clipAbove(watchNext, clipLine);
@@ -2325,7 +2325,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         recsExpandShift = shift;
         long ms = animations && !reducedMotion ? 260 : 0;
         if (watchNext != null) {
-            watchNext.animate().translationY(shift - gridScroll()).setDuration(ms).start();
+            // The clip is in the row's own coordinates: measured for where the row was, it would cut the posters
+            // once the row slid back, until the grid next scrolled. So it follows the row on every frame.
+            watchNext.animate().translationY(shift - gridScroll()).setDuration(ms)
+                    .setUpdateListener(a -> clipAbove(watchNext, clipLine()))
+                    .withEndAction(() -> {
+                        watchNext.animate().setUpdateListener(null);
+                        clipAbove(watchNext, clipLine());
+                    }).start();
         }
         grid.animate().translationY(shift).setDuration(ms).start();
     }
@@ -2427,8 +2434,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /** "HBO Max · Series · Season 4 · 2026   RT 95%   MC 77   IMDb 8.2", with only the scores the title has. */
     private String recMeta(Recs.Item item, String service) {
-        StringBuilder sb = new StringBuilder(service).append("  ·  ")
-                .append(getString(item.series ? R.string.recs_series : R.string.recs_film));
+        StringBuilder sb = new StringBuilder(service).append("  ·  ");
+        if (item.justIn) sb.append(getString(R.string.recs_just_in)).append("  ·  ");
+        sb.append(getString(item.series ? R.string.recs_series : R.string.recs_film));
         if (item.note != null) sb.append("  ·  ").append(item.note);
         String when = recWhen(item);
         if (!when.isEmpty()) sb.append("  ·  ").append(when);
@@ -2488,6 +2496,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (dock == null) return grid.getHeight();
         // DockDecoration's 6dp above the row: parked, the dock's decorated top sits on the grid's top padding.
         return Math.max(0f, grid.getPaddingTop() + 6 * density - dock.getTop());
+    }
+
+    /**
+     * The grid's wrapper clips the tiles at the top of the grid area, under the header; Continue watching and the
+     * hero are not in it, so they get the same line, or they would scroll over the clock and the top buttons.
+     */
+    private int clipLine() {
+        return topInRoot((View) grid.getParent());
     }
 
     /**
