@@ -128,6 +128,10 @@ use it and ends with the check to run.
 
 ## Hard rules
 
+> **This fork** (kermes-tv) gives its launcher the `INTERNET` permission on purpose, for two
+> fork-only features: `watch_next_row` (poster images) and `recs_hero` (TMDB and OMDb). Keep them; the
+> no-network rule below still holds for everything else in the launcher.
+
 Never do these in a PR:
 
 - **No prebuilt APKs or binaries** in the repo, not even as CI artifacts. People build from source.
