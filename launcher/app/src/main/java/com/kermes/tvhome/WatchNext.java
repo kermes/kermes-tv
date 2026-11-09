@@ -89,7 +89,7 @@ final class WatchNext {
 
         /** Changes whenever anything the card shows changes, so the row is only rebuilt then. */
         String signature() {
-            return pkg + '\t' + title + '\t' + episode + '\t' + image + '\t' + Math.round(progress * 50);
+            return pkg + '\t' + title + '\t' + episode + '\t' + image + '\t' + intentUri + '\t' + Math.round(progress * 50);
         }
     }
 
@@ -197,15 +197,20 @@ final class WatchNext {
                 // another handler of the same scheme never answers.
                 Intent intent = Intent.parseUri(item.intentUri, Intent.URI_INTENT_SCHEME);
                 intent.setSelector(null);
-                if (intent.getComponent() == null && intent.getPackage() == null) intent.setPackage(item.pkg);
-                return intent;
+                // Only into the app that published the row: the launcher starts it, so a row naming another app's
+                // screen (or one of the launcher's own) would open it with the launcher's rights.
+                String target = intent.getComponent() != null ? intent.getComponent().getPackageName() : intent.getPackage();
+                if (target == null || target.equals(item.pkg)) {
+                    if (target == null) intent.setPackage(item.pkg);
+                    intent.removeFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+                            | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION | Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
+                    return intent;
+                }
             } catch (URISyntaxException ignored) {
                 // fall through to the app itself
             }
         }
-        PackageManager pm = context.getPackageManager();
-        Intent launch = pm.getLeanbackLaunchIntentForPackage(item.pkg);
-        return launch != null ? launch : pm.getLaunchIntentForPackage(item.pkg);
+        return OpenOnStart.intent(context.getPackageManager(), item.pkg);
     }
 
     private static String appLabel(PackageManager pm, String pkg) {

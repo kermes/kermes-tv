@@ -17,7 +17,6 @@ import android.content.pm.ApplicationInfo;
 import android.content.pm.ResolveInfo;
 import android.content.pm.ChangedPackages;
 import android.content.res.ColorStateList;
-import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -42,11 +41,8 @@ import android.net.wifi.WifiInfo;
 import android.net.wifi.WifiManager;
 import android.os.Build;
 import android.os.Bundle;
-import android.os.Environment;
 import android.os.Handler;
-import android.os.HandlerThread;
 import android.os.Looper;
-import android.os.SystemClock;
 import android.provider.Settings;
 import android.text.SpannableString;
 import android.text.Spanned;
@@ -80,6 +76,7 @@ import androidx.recyclerview.widget.RecyclerView;
 
 import java.io.File;
 import java.io.IOException;
+import java.lang.ref.WeakReference;
 import java.time.LocalDate;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -685,6 +682,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     followGridScroll();
                 }
             });
+            // The clip is in the view's own coordinates: placeWatchNext and placeRecs move these views by their
+            // margins (the hero's list arriving after the row was placed), and a clip measured before the move cut
+            // the posters' tops until the grid next scrolled. Only a clip in place is redone: the fades keep their alpha.
+            View.OnLayoutChangeListener reclip = (v, l, t, r, b, ol, ot, or, ob) -> {
+                if (v.getClipBounds() != null && (t != ot || b != ob)) clipAbove(v, clipLine());
+            };
+            for (View v : new View[]{watchNext, recsInfo, recsMore}) if (v != null) v.addOnLayoutChangeListener(reclip);
         }
 
         // Keep the glass glued to its tile while the grid scrolls.
@@ -1243,6 +1247,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         grid.getRecycledViewPool().clear();
         heroArtCache.clear();
         heroArtKey = null;
+        // The hero's backdrop and the row's posters hold their bitmaps past Posters' cache; both reload on return.
+        if (recsBackdrop != null) recsBackdrop.setImageDrawable(null);
+        if (watchNext != null) watchNext.forget();
         Posters.trim();
         wallpaperPlayer.releaseForMemoryPressure();
         tileRefresh.invalidate();
@@ -2157,7 +2164,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (recsShown) placeRecs(dockTop);
         if (wasShown) return;
         watchNext.animate().cancel();
-        watchNext.animate().setUpdateListener(null);   // expandRecs' clip follower would hold the alpha at 1
+        watchNext.animate().setUpdateListener(null);   // expandRecs' clip follower is done with this animator
         watchNext.setVisibility(View.VISIBLE);
         if (animations && !reducedMotion) watchNext.animate().alpha(1f).setDuration(260).start();
         else watchNext.setAlpha(1f);
@@ -2232,22 +2239,28 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /** The cached list at once, a fresh one when it is due (Recs decides); the hero keeps its place in the list. */
     private void loadRecs() {
+        // A fetch can take minutes: held weakly, a Home rebuilt meanwhile (recreate) is not kept alive by it.
+        WeakReference<MainActivity> home = new WeakReference<>(this);
         Recs.loadAsync(this, items -> {
-            if (isDestroyed()) return;
-            String current = recs.isEmpty() ? null : recs.get(recsIndex).title;
-            recs = items;
-            if (recs.isEmpty()) {
-                hideRecs();
-                return;
-            }
-            int keep = 0;
-            for (int i = 0; i < recs.size(); i++) if (recs.get(i).title.equals(current)) keep = i;
-            buildRecDots();
-            showRec(keep);
-            if (heroShown && lastDockTop >= 0f) recsInfo.post(() -> {
-                if (watchNext != null && watchNext.hasItems()) placeWatchNext(lastDockTop);
-                showRecs(lastDockTop);
-            });
+            MainActivity a = home.get();
+            if (a != null && !a.isDestroyed()) a.onRecs(items);
+        });
+    }
+
+    private void onRecs(List<Recs.Item> items) {
+        String current = recs.isEmpty() ? null : recs.get(recsIndex).title;
+        recs = items;
+        if (recs.isEmpty()) {
+            hideRecs();
+            return;
+        }
+        int keep = 0;
+        for (int i = 0; i < recs.size(); i++) if (recs.get(i).title.equals(current)) keep = i;
+        buildRecDots();
+        showRec(keep);
+        if (heroShown && lastDockTop >= 0f) recsInfo.post(() -> {
+            if (watchNext != null && watchNext.hasItems()) placeWatchNext(lastDockTop);
+            showRecs(lastDockTop);
         });
     }
 
@@ -2513,7 +2526,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private void clipAbove(View v, int y) {
         float top = v.getTop() + v.getTranslationY();
         float leftBelow = top + v.getHeight() - y;
-        v.setAlpha(Math.max(0f, Math.min(1f, leftBelow / (80 * density))));
+        float fade = Math.max(0f, Math.min(1f, leftBelow / (80 * density)));
+        // Transition alpha, which Android multiplies with alpha: the show and hide fades own alpha, and a scroll
+        // during one no longer jumps it to 1 or leaves an invisible row at 1 for the next fade-in. Public from
+        // Android 10; before it the two share alpha, as they always did.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) v.setTransitionAlpha(fade);
+        else v.setAlpha(fade);
         int cut = Math.round(y - top);
         if (cut <= 0) {
             if (v.getClipBounds() != null) v.setClipBounds(null);
@@ -2544,191 +2562,23 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     // ---- optional system stats (config.xml show_stats) --------------------------------------------
 
-    /** Background reader. Started only while Home is resumed and show_stats is on. */
-    private HandlerThread statsThread;
-    /** The current run's handler; a run whose handler is no longer this one stops (volatile: read off-thread). */
-    private volatile Handler statsBg;
+    private final SystemStats systemStats = new SystemStats();
 
+    /** Started only while Home is resumed and show_stats is on. */
     private void startStats() {
-        if (statsThread != null) return;
+        if (systemStats.running()) return;
         stats.setVisibility(View.VISIBLE);
-        cpuTotalPrev = -1;
-        idlePrev = -1;
-        procStatDead = false;
-        statsThread = new HandlerThread("stats");
-        statsThread.start();
-        // Each start gets its own handler, held by its task: stopStats on the main thread can clear the field
-        // at any moment without the reader tripping over it.
-        Handler bg = new Handler(statsThread.getLooper());
-        statsBg = bg;
-        bg.post(new Runnable() {
-            @Override
-            public void run() {
-                if (statsBg != bg) return;
-                String line = readStatsLine();
-                handler.post(() -> {
-                    if (showStats && stats != null && statsBg == bg) stats.setText(line);
-                });
-                if (statsBg == bg) bg.postDelayed(this, STATS_MS);
-            }
+        systemStats.start(this, handler, STATS_MS, line -> {
+            if (showStats && stats != null) stats.setText(line);
         });
     }
 
     private void stopStats() {
-        if (statsThread == null) return;
-        statsBg.removeCallbacksAndMessages(null);
-        statsThread.quit();
-        statsThread = null;
-        statsBg = null;
+        if (!systemStats.running()) return;
+        systemStats.stop();
         // Paused (the quick panel or an app on top): keep the last line on screen. Taking it away moved the grid up
         // under a glass highlight that stayed put.
         if (!showStats) stats.setVisibility(View.GONE);
-    }
-
-    /** One quiet line, e.g. "CPU 8%  ·  Memory 430 MB free  ·  Storage 3.1 GB free". Runs off the main thread. */
-    private static void appendStat(StringBuilder line, String part) {
-        if (line.length() > 0) line.append("  ·  ");
-        line.append(part);
-    }
-
-    private String readStatsLine() {
-        int cpu = cpuPercent();
-        if (cpu < 0) {
-            try {
-                Thread.sleep(200);             // second sample, so the first line already has a CPU figure
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                return "";
-            }
-            cpu = cpuPercent();
-        }
-        // Android 8 and later hide /proc/stat from apps on many TVs: then the line leaves CPU out rather than
-        // showing a dash that never fills in.
-        StringBuilder line = new StringBuilder();
-        if (cpu >= 0) line.append(getString(R.string.stats_cpu, cpu));
-        long[] mem = memUsedOfTotalMb();
-        if (mem != null) appendStat(line, getString(R.string.stats_memory, mem[0], mem[1]));
-        String free = formatGb(getResources(), Environment.getDataDirectory().getFreeSpace());
-        if (!free.isEmpty()) appendStat(line, getString(R.string.stats_storage, free));
-        return StatsText.forLocale(line.toString(), getResources().getConfiguration().getLocales().get(0));
-    }
-
-    // -1: need another sample. -2: this source cannot be read (Android 9 hides /proc/stat from apps).
-    private static final int CPU_UNREADABLE = -2;
-    private long cpuTotalPrev = -1, cpuIdlePrev = -1;
-    private boolean procStatDead;
-    private long idlePrev = -1, wallPrev = -1;
-
-    private int cpuPercent() {
-        if (!procStatDead) {
-            int fromStat = cpuFromProcStat();
-            if (fromStat != CPU_UNREADABLE) return fromStat;
-            procStatDead = true;
-            idlePrev = -1;
-        }
-        return cpuFromIdle();
-    }
-
-    private int cpuFromProcStat() {
-        String s = readFirstLine("/proc/stat");
-        if (s == null || !s.startsWith("cpu")) return CPU_UNREADABLE;
-        String[] t = s.trim().split("\\s+");
-        if (t.length < 5) return CPU_UNREADABLE;
-        try {
-            long user = Long.parseLong(t[1]), nice = Long.parseLong(t[2]), sys = Long.parseLong(t[3]);
-            long idle = Long.parseLong(t[4]);
-            long iowait = t.length > 5 ? Long.parseLong(t[5]) : 0;
-            long irq = t.length > 6 ? Long.parseLong(t[6]) : 0;
-            long soft = t.length > 7 ? Long.parseLong(t[7]) : 0;
-            long total = user + nice + sys + idle + iowait + irq + soft;
-            long idleAll = idle + iowait;
-            if (cpuTotalPrev < 0) {
-                cpuTotalPrev = total;
-                cpuIdlePrev = idleAll;
-                return -1;
-            }
-            long dt = total - cpuTotalPrev, di = idleAll - cpuIdlePrev;
-            cpuTotalPrev = total;
-            cpuIdlePrev = idleAll;
-            if (dt <= 0) return -1;
-            int busy = (int) Math.round((dt - di) * 100.0 / dt);
-            return Math.max(0, Math.min(100, busy));
-        } catch (NumberFormatException e) {
-            return CPU_UNREADABLE;
-        }
-    }
-
-    /** Busy percent from cpuidle time (microseconds) across the cores. -1 until the second sample. */
-    private int cpuFromIdle() {
-        long idle = 0;
-        int cores = 0;
-        for (int i = 0; i < 8; i++) {
-            boolean any = false;
-            for (int state = 0; state < 8; state++) {
-                String t = readFirstLine("/sys/devices/system/cpu/cpu" + i
-                        + "/cpuidle/state" + state + "/time");
-                if (t == null) break;
-                try {
-                    idle += Long.parseLong(t.trim());
-                    any = true;
-                } catch (NumberFormatException e) {
-                    break;
-                }
-            }
-            if (!any) break;
-            cores++;
-        }
-        if (cores == 0) return -1;
-        long wall = SystemClock.elapsedRealtime() * 1000L;
-        if (idlePrev < 0) {
-            idlePrev = idle;
-            wallPrev = wall;
-            return -1;
-        }
-        long di = idle - idlePrev;
-        long dw = (wall - wallPrev) * cores;
-        idlePrev = idle;
-        wallPrev = wall;
-        if (dw <= 0) return -1;
-        int busy = (int) Math.round((dw - di) * 100.0 / dw);
-        return Math.max(0, Math.min(100, busy));
-    }
-
-    /** RAM usage as {used, total} in MB, used = MemTotal - MemAvailable, e.g. "945 / 1536 MB". Used over
-     *  free so the line reads as a load against a known whole; null when /proc/meminfo cannot be read. */
-    private long[] memUsedOfTotalMb() {
-        long available = -1, total = -1;
-        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader("/proc/meminfo"))) {
-            String line;
-            String[] t;
-            while ((line = r.readLine()) != null) {
-                if (line.startsWith("MemAvailable:")) {
-                    t = line.split("\\s+");
-                    if (t.length >= 2) available = Long.parseLong(t[1]) / 1024;
-                } else if (line.startsWith("MemTotal:")) {
-                    t = line.split("\\s+");
-                    if (t.length >= 2) total = Long.parseLong(t[1]) / 1024;
-                }
-            }
-        } catch (IOException | NumberFormatException ignored) {
-        }
-        if (available < 0 || total <= 0) return null;
-        return new long[]{Math.max(0, total - available), total};
-    }
-
-    private static String readFirstLine(String path) {
-        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(path))) {
-            return r.readLine();
-        } catch (IOException e) {
-            return null;
-        }
-    }
-
-    private static String formatGb(Resources res, long bytes) {
-        if (bytes <= 0) return "";
-        double gb = bytes / (1024.0 * 1024 * 1024);
-        return gb >= 10 ? res.getString(R.string.storage_gb_whole, gb)
-                : res.getString(R.string.storage_gb_decimal, gb);
     }
 
     // ---- navigation ------------------------------------------------------------------------------
@@ -2838,8 +2688,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         PackageManager pm = getPackageManager();
         int size = Math.round(22 * density);
         for (String pkg : packages) {
-            Intent launch = pm.getLeanbackLaunchIntentForPackage(pkg);
-            if (launch == null) launch = pm.getLaunchIntentForPackage(pkg);
+            Intent launch = OpenOnStart.intent(pm, pkg);
             if (launch == null) continue;   // not installed, or disabled
             Drawable logo;
             CharSequence label;
@@ -3300,8 +3149,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /** The network pill opens the VPN app when one is configured and installed, otherwise Wi-Fi settings. */
     private void openNetworkPill() {
-        Intent i = vpnApp.isEmpty() ? null : getPackageManager().getLeanbackLaunchIntentForPackage(vpnApp);
-        if (i == null && !vpnApp.isEmpty()) i = getPackageManager().getLaunchIntentForPackage(vpnApp);
+        Intent i = vpnApp.isEmpty() ? null : OpenOnStart.intent(getPackageManager(), vpnApp);
         open(i != null ? i : systemIntent(Settings.ACTION_WIFI_SETTINGS));
     }
 

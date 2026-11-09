@@ -99,6 +99,7 @@ Found with `logcat -v time` while pressing the real buttons (`handleKeyBeforeQue
 | Gear (Settings) | 83 | TV Settings, via `settings_key_keycodes` + `HOME_KEY_SERVICE=1` |
 | YouTube | 4065 | TizenTube, via `app_keys` + `INPUT_KEY_SERVICE=1` (not 190 as on the Q7C list) |
 | TCL | 4020 | HBO Max, via `app_keys` |
+| TV | 4001 | Antenna (tuner input `com.tcl.tvinput/.TunerInputService/HW2`), via `app_keys`; the firmware turns it into `KEYCODE_GUIDE`, which nothing answers once launcherx is disabled |
 | Media | 4057 | unmapped; add `4057:<package>` to `app_keys` to use it |
 
 **The trade-off:** with the key helpers bound, holding Volume +/− moves one step per press instead of

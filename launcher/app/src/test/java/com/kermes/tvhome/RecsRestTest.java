@@ -16,7 +16,7 @@ import org.junit.Test;
 public class RecsRestTest {
 
     private static Recs.Item item(String id) {
-        return new Recs.Item(id, id.startsWith("tv:"), false, id, "2026", "", "", "prime", null, "2026-10-01", -1, -1, 7.5);
+        return new Recs.Item(id, id.startsWith("tv:"), false, id, "2026", "", "", "prime", null, "2026-10-01", -1, -1, 7.5, false);
     }
 
     private static List<Recs.Item> items(String prefix, int n) {

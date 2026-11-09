@@ -34,6 +34,8 @@ final class Posters {
     private static final int TIMEOUT_MS = 8000;
     private static final String DISK_DIR = "posters";
     private static final ExecutorService LOADER = Executors.newFixedThreadPool(2);
+    /** Another app's content:// posters: its provider can block with no timeout, so it never holds up LOADER. */
+    private static final ExecutorService LOCAL = Executors.newSingleThreadExecutor();
     private static final Handler MAIN = new Handler(Looper.getMainLooper());
     private static final LruCache<String, Bitmap> CACHE = new LruCache<String, Bitmap>(16 * 1024 * 1024) {
         @Override
@@ -52,7 +54,7 @@ final class Posters {
     /** Decodes uri at about width pixels wide off the main thread; done gets null when it cannot be read. */
     static void load(Context context, String uri, int width, Consumer<Bitmap> done) {
         Context app = context.getApplicationContext();
-        LOADER.execute(() -> {
+        (WatchNext.isRemote(uri) ? LOADER : LOCAL).execute(() -> {
             Bitmap bitmap = null;
             try {
                 byte[] bytes = read(app, uri);
@@ -107,7 +109,8 @@ final class Posters {
         }
     }
 
-    private static byte[] readAll(InputStream in) throws IOException {
+    /** The whole stream, or null past MAX_BYTES. Recs reads its JSON answers with it too. */
+    static byte[] readAll(InputStream in) throws IOException {
         ByteArrayOutputStream out = new ByteArrayOutputStream(64 * 1024);
         byte[] buf = new byte[16 * 1024];
         int n;

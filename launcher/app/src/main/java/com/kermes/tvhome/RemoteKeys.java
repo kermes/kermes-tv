@@ -260,8 +260,7 @@ final class RemoteKeys {
             }
             return;
         }
-        Intent open = ctx.getPackageManager().getLeanbackLaunchIntentForPackage(pkg);
-        if (open == null) open = ctx.getPackageManager().getLaunchIntentForPackage(pkg);
+        Intent open = OpenOnStart.intent(ctx.getPackageManager(), pkg);
         if (open == null) return;
         try {
             ctx.startActivity(open.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));

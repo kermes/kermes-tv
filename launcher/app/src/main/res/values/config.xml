@@ -231,6 +231,7 @@
          still opens on a tap; "hold:scan:490:..." works for scancodes. A key with only a hold entry does nothing
          on a tap. A listed app that is not installed leaves the button doing nothing. Leave empty to omit. -->
     <string-array name="app_keys" translatable="false">
+        <item>4001:input:com.tcl.tvinput/.TunerInputService/HW2</item>
         <item>4065:io.gh.reisxd.tizentube.cobalt</item>
         <item>4020:com.wbd.stream</item>
         <item>4062:com.netflix.ninja</item>

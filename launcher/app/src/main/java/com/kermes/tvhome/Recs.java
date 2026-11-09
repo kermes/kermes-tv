@@ -3,7 +3,6 @@ package com.kermes.tvhome;
 import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
-import android.content.pm.PackageManager;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -12,7 +11,6 @@ import org.json.JSONArray;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
@@ -67,7 +65,7 @@ import java.util.function.Consumer;
  *   votes); a series with IMDb 8.4 (50,000 votes), up to its 8th season. The hero says where it streams; OK opens that app when it is
  *   installed, and does nothing otherwise.
  * - Just in: up to MAX_JUST_IN places for a film that reached streaming, or a series that premiered or started a
- *   season, in the last JUST_IN_DAYS days, that missed the bar above but is not bad: IMDb 6.0 (1,000 votes) or TMDB
+ *   season, in the last RecsBars.JUST_IN_DAYS days, that missed the bar above but is not bad: IMDb 6.0 (1,000 votes) or TMDB
  *   6.0, and no Rotten Tomatoes score under 40%. No places of their own: as the newest they sort first among the
  *   new titles, count toward the films and series floor, and the hero says "Just in".
  * - Titles the owner marked "Not interested" (hidden, by TMDB id) never come back.
@@ -91,12 +89,13 @@ final class Recs {
      * 30 new titles qualify, and ten a day resting four days would need 40.
      */
     private static final int CATALOGUE_SPARE = 6;
-    /** Recent titles below the bar, at most, and how recent. */
+    /** Recent titles below the bar, at most (how recent: RecsBars.JUST_IN_DAYS). */
     private static final int MAX_JUST_IN = 3;
-    private static final int JUST_IN_DAYS = 14;
     private static final Random RANDOM = new Random();
     static final int MAX = 10;
     private static final long MAX_AGE_MS = 20L * 60 * 60 * 1000;
+    /** After a failed fetch, how long Home waits before trying again (unless "Other titles" asks). */
+    private static final long RETRY_MS = 60L * 60 * 1000;
     private static final String TAG = "TvHome.Recs";
     private static final String CACHE = "recs.json";
     /** Part of the cache's signature: a change to the rules or the item fields makes the next load fetch afresh. */
@@ -142,15 +141,8 @@ final class Recs {
         final boolean justIn;
 
         Item(String id, boolean series, boolean outside, String title, String year, String overview, String backdrop,
-             String service, String note, String date, int rottenTomatoes, int metacritic, double imdb) {
-            this(id, series, outside, title, year, overview, backdrop, service, note, date, rottenTomatoes, metacritic,
-                    imdb, false);
-        }
-
-        Item(String id, boolean series, boolean outside, String title, String year, String overview, String backdrop,
              String service, String note, String date, int rottenTomatoes, int metacritic, double imdb, boolean justIn) {
             this.justIn = justIn;
-
             this.date = date;
             this.id = id;
             this.series = series;
@@ -262,9 +254,7 @@ final class Recs {
     static Intent intentFor(Context context, Item item) {
         Service s = service(context, item.service);
         if (s == null) return null;
-        PackageManager pm = context.getPackageManager();
-        Intent launch = pm.getLeanbackLaunchIntentForPackage(s.pkg);
-        return launch != null ? launch : pm.getLaunchIntentForPackage(s.pkg);
+        return OpenOnStart.intent(context.getPackageManager(), s.pkg);
     }
 
     /** The service's name: from recs_services, or as TMDB gave it for one that is not listed there ("name:Filmin"). */
@@ -282,7 +272,7 @@ final class Recs {
         Context app = context.getApplicationContext();
         String region = app.getString(R.string.recs_region);
         Set<String> chosen = chosen(app);
-        String signature = RULES + ":" + region + ":" + new TreeSet<>(chosen);
+        String signature = RULES + ":" + region + ":" + Locale.getDefault().toLanguageTag() + ":" + new TreeSet<>(chosen);
         LOADER.execute(() -> {
             JSONObject cache = readCache(app);
             Set<String> hidden = hidden(app);
@@ -294,9 +284,11 @@ final class Recs {
             long ageMs = System.currentTimeMillis() - fetchedAt;
             boolean forced = cache != null && cache.optBoolean("force");
             boolean fresh = sameServices && ageMs < MAX_AGE_MS && !cache.optBoolean("stale") && !forced;
-            if (fresh || !configured()) {
+            boolean retryLater = !forced && System.currentTimeMillis() - (cache == null ? 0 : cache.optLong("failedAt")) < RETRY_MS;
+            if (fresh || !configured() || retryLater) {
                 logOnce("cached list: " + cached.size() + " titles, fetched " + hours(ageMs) + " ago"
-                        + (configured() ? "" : "; no API keys, never fetched"));
+                        + (configured() ? "" : "; no API keys, never fetched")
+                        + (retryLater ? "; the last fetch failed, trying again later" : ""));
                 return;
             }
             long today = LocalDate.now().toEpochDay();
@@ -310,6 +302,8 @@ final class Recs {
                     : "a title was marked not interested") + ", " + resting.size() + " titles resting");
             try {
                 List<Item> fetched = fetch(app, region, chosen, hidden, resting);
+                // Nothing qualified while the old list still has titles: an outage, not an empty catalogue.
+                if (fetched.isEmpty() && !cached.isEmpty()) throw new IOException("empty list");
                 Set<String> before = new HashSet<>();
                 for (Item item : cached) before.add(item.id);
                 int kept = 0, fromRest = 0;
@@ -325,8 +319,13 @@ final class Recs {
                         + fromRest + " back from rest: " + titles(fetched));
                 MAIN.post(() -> done.accept(fetched));
             } catch (IOException | JSONException | RuntimeException e) {
-                // Offline or an API hiccup: the cached list stays, and the next return to Home tries again.
+                // Offline or an API hiccup: the cached list stays, and Home tries again after RETRY_MS.
                 Log.w(TAG, "fetch failed, the cached list stays: " + e);
+                try {
+                    write(app, (cache == null ? new JSONObject() : cache).put("failedAt", System.currentTimeMillis()));
+                } catch (IOException | JSONException ignored) {
+                    // the next return to Home simply tries again
+                }
             }
         });
     }
@@ -507,16 +506,11 @@ final class Recs {
         int imdbVotes = intOf(o.optString("imdbVotes").replace(",", ""));
         double tmdb = m.optDouble("vote_average");
         int tmdbVotes = m.optInt("vote_count");
-        boolean critics = rt >= 75 || mc >= 65;
-        boolean byImdb = imdbVotes >= 5000;
-        boolean audience = byImdb ? imdb >= 6.5 : tmdb >= 7.0 && tmdbVotes >= 300;
-        boolean strongAudience = byImdb ? imdb >= 7.5 : tmdb >= 7.6 && tmdbVotes >= 500;
-        boolean pass = rt >= 0 || mc >= 0 ? critics && audience : strongAudience;
-        if (outside != null) pass = rt >= 93 && mc >= 80 && imdb >= 7.5 && imdbVotes >= 20000;
-        if (catalogue) pass = imdb >= 7.5 && imdbVotes >= 50000 && (rt < 0 || rt >= 80);
+        boolean pass = RecsBars.film(rt, mc, imdb, imdbVotes, tmdb, tmdbVotes, outside != null, catalogue);
         // A catalogue film is dated by its release: the hero shows its year, not "this month".
         String date = catalogue ? d.optString("release_date") : streamingDate(d, region);
-        boolean justIn = !pass && outside == null && !catalogue && justIn(date, imdb, imdbVotes, tmdb, tmdbVotes, rt);
+        boolean justIn = !pass && outside == null && !catalogue
+                && RecsBars.justIn(date, LocalDate.now(), imdb, imdbVotes, tmdb, tmdbVotes, rt);
         if (!pass && !justIn) return null;
         return new Item("movie:" + m.getInt("id"), false, outside != null, d.optString("title"),
                 year(d.optString("release_date")), d.optString("overview"), IMAGES + backdrop, service, null,
@@ -552,26 +546,16 @@ final class Recs {
         int rt = rating(o, "Rotten Tomatoes");
         double imdb = doubleOf(o.optString("imdbRating"));
         int imdbVotes = intOf(o.optString("imdbVotes").replace(",", ""));
-        boolean audience = imdbVotes >= 3000 ? imdb >= 7.6
-                : t.optDouble("vote_average") >= 8.0 && t.optInt("vote_count") >= 300;
-        if (outside != null) audience = imdb >= 8.4 && imdbVotes >= 50000;
-        boolean pass = audience && (rt < 0 || rt >= 80);
+        boolean pass = RecsBars.series(rt, imdb, imdbVotes, t.optDouble("vote_average"), t.optInt("vote_count"),
+                outside != null);
         String date = newSeason ? latestDate : d.optString("first_air_date");
         boolean justIn = !pass && outside == null
-                && justIn(date, imdb, imdbVotes, t.optDouble("vote_average"), t.optInt("vote_count"), rt);
+                && RecsBars.justIn(date, today, imdb, imdbVotes, t.optDouble("vote_average"), t.optInt("vote_count"), rt);
         if (!pass && !justIn) return null;
         String note = newSeason ? context.getString(R.string.recs_season, latest) : context.getString(R.string.recs_new_series);
         return new Item("tv:" + t.getInt("id"), true, outside != null, d.optString("name"),
                 year(d.optString("first_air_date")), d.optString("overview"), IMAGES + backdrop, service, note,
                 date, rt, -1, imdb, justIn);
-    }
-
-    /** Out in the last JUST_IN_DAYS days and not bad: the bar for a "just in" place. */
-    private static boolean justIn(String date, double imdb, int imdbVotes, double tmdb, int tmdbVotes, int rt) {
-        if (date == null || date.compareTo(LocalDate.now().minusDays(JUST_IN_DAYS).toString()) < 0) return false;
-        if (date.compareTo(LocalDate.now().toString()) > 0) return false;
-        boolean audience = imdbVotes >= 1000 ? imdb >= 6.0 : tmdb >= 6.0 && tmdbVotes >= 20;
-        return audience && (rt < 0 || rt >= 40);
     }
 
     /**
@@ -647,7 +631,11 @@ final class Recs {
     private static JSONObject omdb(JSONObject externalIds) throws IOException, JSONException {
         String imdbId = externalIds == null ? "" : externalIds.optString("imdb_id", "");
         if (imdbId.isEmpty() || "null".equals(imdbId)) return new JSONObject();
-        return new JSONObject(get("https://www.omdbapi.com/?i=" + enc(imdbId) + "&apikey=" + enc(BuildConfig.OMDB_KEY), null));
+        JSONObject o = new JSONObject(get("https://www.omdbapi.com/?i=" + enc(imdbId) + "&apikey=" + enc(BuildConfig.OMDB_KEY), null));
+        // "Request limit reached!" or "Invalid API key!" is a failed call, not a title without scores.
+        String error = o.optString("Error");
+        if (error.contains("limit") || error.contains("API key")) throw new IOException("OMDb: " + error);
+        return o;
     }
 
     private static String get(String url, String authorization) throws IOException {
@@ -659,19 +647,16 @@ final class Recs {
         try {
             if (conn.getResponseCode() / 100 != 2) throw new IOException("HTTP " + conn.getResponseCode());
             try (InputStream in = conn.getInputStream()) {
-                return readAll(in);
+                return text(Posters.readAll(in));
             }
         } finally {
             conn.disconnect();
         }
     }
 
-    private static String readAll(InputStream in) throws IOException {
-        ByteArrayOutputStream out = new ByteArrayOutputStream();
-        byte[] buf = new byte[16 * 1024];
-        int n;
-        while ((n = in.read(buf)) > 0) out.write(buf, 0, n);
-        return out.toString(StandardCharsets.UTF_8.name());
+    private static String text(byte[] bytes) throws IOException {
+        if (bytes == null) throw new IOException("answer too large");
+        return new String(bytes, StandardCharsets.UTF_8);
     }
 
     private static String enc(String s) {
@@ -717,7 +702,7 @@ final class Recs {
         File f = new File(context.getFilesDir(), CACHE);
         if (!f.isFile()) return null;
         try (FileInputStream in = new FileInputStream(f)) {
-            return new JSONObject(readAll(in));
+            return new JSONObject(text(Posters.readAll(in)));
         } catch (IOException | JSONException e) {
             return null;
         }

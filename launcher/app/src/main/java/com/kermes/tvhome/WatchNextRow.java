@@ -63,11 +63,11 @@ public class WatchNextRow extends LinearLayout {
         return posterHeight;
     }
 
-    /** Rebuilds the cards only when what they show changed; returns whether it did. */
-    boolean setItems(List<WatchNext.Item> next) {
+    /** Rebuilds the cards only when what they show changed. */
+    void setItems(List<WatchNext.Item> next) {
         StringBuilder sb = new StringBuilder();
         for (WatchNext.Item item : next) sb.append(item.signature()).append('\n');
-        if (sb.toString().equals(signature)) return false;
+        if (sb.toString().equals(signature)) return;
         boolean hadFocus = strip.hasFocus();
         signature = sb.toString();
         items = new ArrayList<>(next);
@@ -76,7 +76,13 @@ public class WatchNextRow extends LinearLayout {
         for (int i = 0; i < items.size(); i++) strip.addView(card(inflater, i));
         lastFocused = Math.min(lastFocused, Math.max(0, items.size() - 1));
         if (hadFocus && !items.isEmpty()) focusRemembered();
-        return true;
+    }
+
+    /** Memory pressure: drops the cards and their posters; the next setItems builds them again. */
+    void forget() {
+        signature = "";
+        items = new ArrayList<>();
+        strip.removeAllViews();
     }
 
     /**
