@@ -71,8 +71,46 @@ def record_path(list_path, host):
     """One record per TV and list. The list is identified by its absolute path, so a copy of the
     same file somewhere else gets its own record."""
     tag = re.sub(r"[^A-Za-z0-9.-]", "_", host or "no-host")
-    digest = hashlib.sha1(str(Path(list_path).resolve()).encode()).hexdigest()[:8]
-    return Path.home() / ".cleanyourtv" / f"recovery-{tag}-{digest}.json"
+    return Path.home() / ".cleanyourtv" / f"recovery-{tag}-{list_digest(list_path)}.json"
+
+
+def list_digest(list_path):
+    return hashlib.sha1(str(Path(list_path).resolve()).encode()).hexdigest()[:8]
+
+
+def find_record(list_path, host):
+    """The record for this TV and list. The router may have given the TV a new address since, or the
+    relay (127.0.0.1) was used for one run and not the other: then the one record for this list taken at
+    another address is it. Two or more is two TVs, and which one this is cannot be told without asking."""
+    path = record_path(list_path, host)
+    if path.exists():
+        return path
+    others = sorted(path.parent.glob(f"recovery-*-{list_digest(list_path)}.json"))
+    if len(others) == 1:
+        sys.stderr.write(f"no record at {host or 'this address'}; using the one for this list taken at "
+                         f"another address: {others[0]}\n")
+        return others[0]
+    if others:
+        sys.stderr.write("records for this list exist for several addresses, so none is used; set TV_HOST to "
+                         "the address the list was applied at:\n" + "".join(f"  {o}\n" for o in others))
+    return path
+
+
+def tv_id(dev):
+    """A hash of the TV's serial number, to tell two TVs at one address apart; None when it has none.
+    Hashed: the record is a local file, but nothing in this repo writes a serial down."""
+    serial = shell(dev, "getprop ro.serialno")
+    if not serial or serial.lower() in ("unknown", "0123456789abcdef"):
+        return None
+    return hashlib.sha1(serial.encode()).hexdigest()[:12]
+
+
+def check_same_tv(path, record, current):
+    if record.get("tv") and current and record["tv"] != current:
+        raise SystemExit(f"{path} was recorded on a different TV at this address (through the relay, or the "
+                         "router gave this address to another TV), so it is not this TV's undo. Nothing was "
+                         "changed. For this TV, apply a copy of the list from another path (each list path "
+                         "gets its own record), e.g. cp the list to work/<this tv>.txt.")
 
 
 def load_record(path):
@@ -161,8 +199,26 @@ def package_state(name, installed, disabled):
             else "enabled")
 
 
+def same_tv_elsewhere(list_path, path):
+    """The record this TV got for this list at another address (the router moved it), or path. Only a
+    serial that matches counts: a fresh record here would hold the state after cleanup as the original."""
+    others = [o for o in sorted(path.parent.glob(f"recovery-*-{list_digest(list_path)}.json")) if o != path]
+    if not others:
+        return path
+    dev = connect()
+    try:
+        current = tv_id(dev)
+    finally:
+        dev.close()
+    mine = [o for o in others if current and load_record(o).get("tv") == current]
+    if len(mine) == 1:
+        print(f"this TV's record for this list was taken at another address; keeping it: {mine[0]}")
+        return mine[0]
+    return path
+
+
 def save(list_path, host):
-    path = record_path(list_path, host)
+    path = same_tv_elsewhere(list_path, record_path(list_path, host))
     if path.exists():
         record = load_record(path)
         packages = read_list(list_path)
@@ -171,12 +227,13 @@ def save(list_path, host):
         # does not hold yet have not been touched by this list, so their state now is their state
         # before cleanup. Without them, restore would leave those packages disabled for good.
         added = [name for name in packages if name not in record["packages"]]
-        print(f"keeping the recovery record from {record.get('created')}: {path}")
-        if not added:
-            print("nothing was recorded again: it holds the state from before the first run.")
-            return 0
         dev = connect()
         try:
+            check_same_tv(path, record, tv_id(dev))
+            print(f"keeping the recovery record from {record.get('created')}: {path}")
+            if not added:
+                print("nothing was recorded again: it holds the state from before the first run.")
+                return 0
             installed, disabled = query_packages(dev)
         finally:
             dev.close()
@@ -193,6 +250,7 @@ def save(list_path, host):
         installed, disabled = query_packages(dev)
         home = query_home(dev)
         scales = {key: shell(dev, f"settings get global {key}") for key in SETTINGS}
+        tv = tv_id(dev)
     finally:
         dev.close()
 
@@ -203,6 +261,7 @@ def save(list_path, host):
         "version": VERSION,
         "created": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
         "host": host,
+        "tv": tv,
         "list": str(Path(list_path).resolve()),
         "home": home,
         "settings": scales,
@@ -223,7 +282,7 @@ def restore_commands(list_path, stock, host):
     packages = read_list(list_path)
     if stock and not PACKAGE_RE.fullmatch(stock):
         raise SystemExit(f"not a package name: {stock!r}")
-    path = record_path(list_path, host)
+    path = find_record(list_path, host)
     commands = []
 
     if not path.exists():

@@ -49,6 +49,8 @@ def answer(command):
         return "".join(f"package:{name}\n" for name in state["disabled"])
     if "resolve-activity" in command:
         return (state["home"] or "") + "\n"
+    if command == "getprop ro.serialno":
+        return state.get("serial", "") + "\n"
     if command.startswith("settings get global "):
         key = command.split()[-1]
         return str(state["settings"].get(key, "null")) + "\n"
@@ -127,8 +129,8 @@ class RecoveryRecordTest(unittest.TestCase):
         state.update(overrides)
         self.state_path.write_text(json.dumps(state))
 
-    def run_script(self, script, *args):
-        env = dict(os.environ, TV_HOST="192.168.1.50", HOME=str(self.home),
+    def run_script(self, script, *args, host="192.168.1.50"):
+        env = dict(os.environ, TV_HOST=host, HOME=str(self.home),
                    FAKE_TV_STATE=str(self.state_path))
         return subprocess.run(
             ["bash", str(self.repo / "tools" / script), *args],
@@ -178,6 +180,36 @@ class RecoveryRecordTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("keeping the recovery record", result.stdout)
         self.assertEqual(self.record()["packages"], first["packages"])
+
+    def cleaned(self, **overrides):
+        """The TV after the list went through: enabled is off now."""
+        self.tv(installed=["com.example.enabled", "com.example.already_off", "com.google.android.tvlauncher"],
+                disabled=["com.example.enabled", "com.example.already_off"], **overrides)
+
+    def test_new_address_keeps_the_record(self):
+        # The router gives the TV a new address between the first run, a second one and the undo.
+        self.tv(serial="TV-A")
+        self.assertEqual(self.run_script("disable.sh", str(self.list_path)).returncode, 0)
+        first = self.record()
+        self.cleaned(serial="TV-A")
+        result = self.run_script("disable.sh", str(self.list_path), host="192.168.1.77")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(self.record()["packages"], first["packages"], "the cleaned state is not the original")
+        self.cleaned(serial="TV-A")
+        result = self.run_script("restore.sh", str(self.list_path), host="192.168.1.77")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("pm enable com.example.enabled", self.sent())
+        self.assertNotIn("pm enable com.example.already_off", self.sent())
+
+    def test_another_tv_at_the_same_address_is_refused(self):
+        # Through the relay every TV is 127.0.0.1: the second TV must not take the first one's undo.
+        self.tv(serial="TV-A")
+        self.assertEqual(self.run_script("disable.sh", str(self.list_path), host="127.0.0.1").returncode, 0)
+        self.tv(serial="TV-B")
+        result = self.run_script("disable.sh", str(self.list_path), host="127.0.0.1")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("different TV", result.stderr)
+        self.assertFalse(any(c.startswith("pm disable-user") for c in self.sent()))
 
     def test_failed_save_disables_nothing(self):
         self.tv(unreachable=True)
